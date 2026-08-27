@@ -10,3 +10,4 @@ backend/workspace/
 dist/
 frontend/dist/
 backend/data/.api-token
+.claude/*.lock
