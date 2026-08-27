@@ -29,6 +29,11 @@ const LOG_FILE = path.join(DATA_DIR, 'forja-service.log');
 const WATCH_INTERVAL_MS = Number(process.env.FORJA_WATCH_INTERVAL_MS || 8000);
 const HEALTH_TIMEOUT_MS = Number(process.env.FORJA_HEALTH_TIMEOUT_MS || 2500);
 const START_GRACE_MS = Number(process.env.FORJA_START_GRACE_MS || 90000);
+// Falhas seguidas exigidas antes de reiniciar. Operações legítimas e síncronas do control
+// plane (ex.: `docker build` da sandbox de QA/Segurança) podem travar o event loop por dezenas
+// de segundos sem o processo estar de fato caído — reiniciar após 1 timeout único matava runs
+// em andamento. Ver docs/adr/006-watchdog-unhealthy-threshold.md.
+const UNHEALTHY_THRESHOLD = Number(process.env.FORJA_WATCH_UNHEALTHY_THRESHOLD || 3);
 
 function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -288,6 +293,7 @@ async function watchLoop({ once = false } = {}) {
     }
   }
 
+  let consecutiveFailures = 0;
   do {
     const cmd = consumeCommand();
     if (cmd) {
@@ -299,12 +305,22 @@ async function watchLoop({ once = false } = {}) {
     }
 
     const healthy = (await checkHealth()).ok;
-    if (!healthy) {
-      log('Health falhou — reinício automático.');
-      try {
-        await restart();
-      } catch (err) {
-        log(`Reinício automático falhou: ${err.message}`);
+    if (healthy) {
+      consecutiveFailures = 0;
+    } else {
+      consecutiveFailures += 1;
+      if (consecutiveFailures < UNHEALTHY_THRESHOLD) {
+        log(
+          `Health falhou (${consecutiveFailures}/${UNHEALTHY_THRESHOLD}) — aguardando confirmação antes de reiniciar.`
+        );
+      } else {
+        log(`Health falhou ${consecutiveFailures}x seguidas — reinício automático.`);
+        try {
+          await restart();
+        } catch (err) {
+          log(`Reinício automático falhou: ${err.message}`);
+        }
+        consecutiveFailures = 0;
       }
     }
 
