@@ -1,5 +1,6 @@
 import { api } from '../../services/api';
 import type { AppState } from '../../hooks/useForjaApp';
+import { formatDate } from '../../utils/format';
 
 export function HistoryTab({ s }: { s: AppState }) {
   return (
@@ -9,7 +10,7 @@ export function HistoryTab({ s }: { s: AppState }) {
           <div>
             <strong>{run.status}</strong>
             <p style={{ fontSize: 13 }}>{run.prompt.slice(0, 120)}</p>
-            <p className="muted">{run.started_at}</p>
+            <p className="muted">{formatDate(run.started_at)}</p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <button onClick={() => s.openRun(run.id)}>Abrir</button>
