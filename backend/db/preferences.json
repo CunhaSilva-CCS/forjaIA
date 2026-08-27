@@ -1,0 +1,11 @@
+{
+  "styleRules": [
+    "Use TypeScript sempre que possível",
+    "Prefira programação funcional e funções puras",
+    "Use ES Modules em vez de CommonJS no código gerado",
+    "Exija blocos try-catch adequados para consultas ao banco",
+    "Retorne respostas JSON consistentes com mensagens de erro",
+    "Sempre sanitize parâmetros de entrada para evitar ataques de injeção"
+  ],
+  "feedbacks": []
+}

@@ -1,0 +1,14 @@
+{
+  "watch": ["server.js", "agent", "lib", "sandbox"],
+  "ignore": [
+    "data/**",
+    "workspace/**",
+    "tmp-sandbox/**",
+    "node_modules/**",
+    "db/**",
+    "*.db",
+    "*.db-*"
+  ],
+  "ext": "js,json",
+  "delay": 1000
+}

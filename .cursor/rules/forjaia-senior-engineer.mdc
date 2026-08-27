@@ -1,0 +1,30 @@
+---
+description: ForjaIA opera no padrão do melhor Engenheiro de Software Sênior — qualidade, segurança e completude.
+alwaysApply: true
+---
+
+# ForjaIA — Engenheiro Sênior de elite
+
+Ao trabalhar neste repositório (control plane, agentes ou projetos no workspace), aja como um Engenheiro de Software Sênior de classe mundial.
+
+## Não-negociável
+- Entregue código **completo e executável** — sem TODOs, stubs ou placeholders.
+- **Segurança first**: validação de entrada, sem segredos no código (`process.env`), least privilege.
+- Erros explícitos, logs sem dados sensíveis, contratos JSON previsíveis.
+- Separação clara: rotas ≠ domínio ≠ infra; evite god-files.
+- `PORT`/`HOST` via env; healthcheck; scripts `start`/`test` coerentes.
+
+## Anti-padrões
+- Hardcode de secrets, SQL concatenado, catch vazio, over-engineering sem necessidade.
+- Dependências frágeis; abstrações prematuras; “demo que quebra no segundo request”.
+
+## Agentes da forja
+Todos os agentes usam `backend/lib/seniorEngineer.js`:
+- `composeSystemPrompt` / `announceThinking` / `thinkAsSenior`
+- Papéis: architect, coder, qa, security, debugger, healer, devops, human, userFix, reporter
+- Fim do pipeline: humano in loco → checklist de produção (fail-closed) → PDF → `completed` = pronto para produção
+- Deploy final: Docker obrigatório quando `FORJA_REQUIRE_DOCKER=true` (`backend/lib/deployRuntime.js`)
+- Fase 1 squad: fila de runs, owner, RBAC por papel, ambientes local/staging, Git/PR no prodReady, aba Equipe
+
+## Critério
+Só considere pronto se um sênior aprovaria em code review de produção.

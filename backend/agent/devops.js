@@ -1,0 +1,279 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const config = require('../lib/config');
+const { resolveWithinWorkspace, safeRmDir } = require('../lib/paths');
+const deployRuntime = require('../lib/deployRuntime');
+
+module.exports = {
+  prepareSandbox: async (files, runConfig, orchestrator) => {
+    const { announceThinking } = require('../lib/seniorEngineer');
+    announceThinking(orchestrator, 'devops');
+    orchestrator.log('devops', 'Preparando sandbox e validando grafo de pacotes...', 'info');
+    const runner = require('../sandbox/runner');
+    const sandbox = await runner.start(files, orchestrator);
+    return sandbox;
+  },
+
+  cleanupSandbox: async (sandboxConfig, orchestrator) => {
+    orchestrator.log('devops', 'Limpando sandbox...', 'info');
+    const runner = sandboxConfig?.runner || require('../sandbox/runner');
+    await runner.stop(orchestrator);
+    orchestrator.log('devops', 'Sandbox limpa.', 'success');
+  },
+
+  killDeploy: async () => {
+    await deployRuntime.stopDeploy();
+  },
+
+  deploy: async (files, runConfig, orchestrator) => {
+    const { announceThinking, thinkAsSenior } = require('../lib/seniorEngineer');
+    const { defaultDockerfile, defaultDockerignore, defaultEnvExample } = require('../lib/productionChecklist');
+    announceThinking(orchestrator, 'devops');
+
+    const isValidate = runConfig.mode === 'validate';
+    const relativeTarget =
+      runConfig.targetPath || (isValidate ? runConfig.sourcePath : null) || 'deployed';
+    const deployDir = resolveWithinWorkspace(relativeTarget);
+    orchestrator.log('devops', `Implantando no caminho do workspace: ${relativeTarget}`, 'info');
+
+    // Artefatos mínimos no grafo de arquivos (a runtime também gera Dockerfile no build da imagem)
+    const byPath = new Map((files || []).map((f) => [String(f.path || '').replace(/\\/g, '/'), f]));
+    const ensureFile = (p, content) => {
+      if (!byPath.has(p)) {
+        byPath.set(p, { name: path.basename(p), path: p, content });
+      }
+    };
+    ensureFile('Dockerfile', defaultDockerfile(config.deployHostPort));
+    ensureFile('.dockerignore', defaultDockerignore());
+    if (!byPath.has('.env.example')) {
+      ensureFile('.env.example', defaultEnvExample(config.deployHostPort));
+    } else {
+      const envEx = String(byPath.get('.env.example').content || '');
+      if (!/^PORT=/m.test(envEx) && !/\nPORT=/m.test(envEx)) {
+        byPath.set('.env.example', {
+          ...byPath.get('.env.example'),
+          content: `${envEx.trim()}\nPORT=${config.deployHostPort}\n`
+        });
+      }
+    }
+    files = [...byPath.values()];
+
+    const hasPkg = byPath.has('package.json');
+    const hasStart =
+      hasPkg &&
+      (() => {
+        try {
+          const pkg = JSON.parse(byPath.get('package.json').content || '{}');
+          return Boolean(pkg.scripts?.start || pkg.main);
+        } catch {
+          return false;
+        }
+      })();
+
+    const preflight = await thinkAsSenior({
+      role: 'devops',
+      taskContract: `Pré-voo de deploy local como SRE sênior.
+A ForjaIA SEMPRE gera/reescreve o Dockerfile de produção no deploy (porta interna 3000).
+Não reprove só por "falta de Dockerfile" se package.json tiver script start/main e .env.example tiver PORT.
+Só marque ready=false se faltar entrypoint real (package.json/start) ou houver risco crítico óbvio.
+Retorne APENAS JSON:
+{
+  "ready": true,
+  "summary": "1-2 frases",
+  "checklist": ["item ok ou risco"],
+  "warnings": ["aviso operacional"]
+}`,
+      userPayload: {
+        mode: runConfig.mode || 'forge',
+        target: relativeTarget,
+        files: (files || []).map((f) => f.path),
+        facts: {
+          hasPackageJson: hasPkg,
+          hasStartScriptOrMain: hasStart,
+          hasDockerfile: byPath.has('Dockerfile'),
+          hasEnvExample: byPath.has('.env.example'),
+          forjaGeneratesDockerfile: true,
+          deployHostPort: config.deployHostPort,
+          containerPort: 3000
+        },
+        deployPort: config.deployHostPort,
+        requireDocker: config.requireDocker
+      },
+      runConfig,
+      orchestrator
+    });
+    if (preflight?.summary) {
+      orchestrator.log(
+        'devops',
+        `Pré-voo: ${preflight.summary}`,
+        preflight.ready === false ? 'warning' : 'info'
+      );
+    }
+    if (Array.isArray(preflight?.warnings)) {
+      for (const w of preflight.warnings.slice(0, 4)) {
+        orchestrator.log('devops', `Aviso: ${w}`, 'warning');
+      }
+    }
+    // Fail-closed estrutural; não bloqueie só porque o LLM pediu Dockerfile (a forja gera).
+    if (preflight && preflight.ready === false && !config.allowMocks) {
+      const summary = String(preflight.summary || '');
+      const dockerfileOnlyComplaint =
+        hasStart &&
+        /dockerfile|PORT|porta/i.test(summary) &&
+        !/sem package\.json|missing package\.json|sem script start|entrypoint ausente|não inicia|cannot start/i.test(
+          summary
+        );
+      if (dockerfileOnlyComplaint) {
+        orchestrator.log(
+          'devops',
+          `Pré-voo LLM marcou não-pronto por Dockerfile/PORT — seguindo (artefato gerado pela forja). Motivo: ${summary}`,
+          'warning'
+        );
+      } else if (!hasStart) {
+        throw new Error(
+          `Pré-voo de deploy reprovado (produção fail-closed): ${summary || 'faltam package.json/start'}`
+        );
+      } else {
+        throw new Error(
+          `Pré-voo de deploy reprovado (produção fail-closed): ${summary || 'não pronto'}`
+        );
+      }
+    }
+
+    await deployRuntime.stopDeploy(orchestrator);
+
+    // Em validação, preservar o projeto existente (dados, Dockerfile, node_modules).
+    if (!isValidate) {
+      if (fs.existsSync(deployDir)) {
+        safeRmDir(deployDir);
+      }
+      fs.mkdirSync(deployDir, { recursive: true });
+
+      for (const file of files) {
+        if (!file?.path) continue;
+        const fullPath = path.join(deployDir, file.path);
+        const rel = path.relative(deployDir, fullPath);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          throw new Error(`Recusando gravar fora do diretório de deploy: ${file.path}`);
+        }
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, file.content || '', 'utf8');
+      }
+    } else if (!fs.existsSync(deployDir)) {
+      throw new Error(`Projeto a validar não encontrado: ${relativeTarget}`);
+    } else if (Array.isArray(files) && files.length) {
+      let written = 0;
+      for (const file of files) {
+        if (!file?.path || typeof file.content !== 'string') continue;
+        const fullPath = path.join(deployDir, file.path);
+        const rel = path.relative(deployDir, fullPath);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          throw new Error(`Recusando gravar fora do diretório de deploy: ${file.path}`);
+        }
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, file.content, 'utf8');
+        written += 1;
+      }
+      if (written) {
+        orchestrator.log(
+          'devops',
+          `Sincronizados ${written} arquivo(s) curado(s) no projeto pronto.`,
+          'info'
+        );
+      }
+    }
+
+    const envPath = path.join(deployDir, '.env');
+    const secureJwtSecret =
+      process.env.JWT_SECRET ||
+      (fs.existsSync(envPath)
+        ? (fs.readFileSync(envPath, 'utf8').match(/^JWT_SECRET=(.+)$/m) || [])[1]?.trim()
+        : null) ||
+      crypto.randomBytes(32).toString('hex');
+
+    if (isValidate && fs.existsSync(envPath)) {
+      const existing = fs.readFileSync(envPath, 'utf8');
+      const lines = existing.split(/\r?\n/).filter((l) => l.trim() !== '');
+      const map = new Map();
+      for (const line of lines) {
+        const i = line.indexOf('=');
+        if (i > 0) map.set(line.slice(0, i).trim(), line.slice(i + 1));
+      }
+      // Host port for docs/local; container forces PORT=3000 internamente.
+      map.set('PORT', String(config.deployHostPort));
+      if (!map.has('HOST')) map.set('HOST', '0.0.0.0');
+      if (!map.has('JWT_SECRET')) map.set('JWT_SECRET', secureJwtSecret);
+      if (!map.has('NODE_ENV')) map.set('NODE_ENV', 'production');
+      const merged = [...map.entries()].map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
+      fs.writeFileSync(envPath, merged, 'utf8');
+      orchestrator.log('devops', 'Preservado .env do projeto; PORT ajustado para deploy.', 'info');
+    } else {
+      const corsOrigin =
+        process.env.CORS_ORIGIN ||
+        config.corsOrigin ||
+        'http://127.0.0.1:3001';
+      const envContent =
+        [
+          `PORT=${config.deployHostPort}`,
+          `HOST=0.0.0.0`,
+          `JWT_SECRET=${secureJwtSecret}`,
+          `NODE_ENV=production`,
+          `CORS_ORIGIN=${corsOrigin}`,
+          `DATABASE_PATH=./data/auth.sqlite`,
+          `EMBEDDING_PROVIDER=local`,
+          `DB_PATH=./data/rag.db`
+        ].join('\n') + '\n';
+      fs.writeFileSync(envPath, envContent, 'utf8');
+    }
+
+    const fileEnv = Object.fromEntries(
+      fs.existsSync(envPath)
+        ? fs
+            .readFileSync(envPath, 'utf8')
+            .split(/\r?\n/)
+            .filter((l) => l.includes('='))
+            .map((l) => {
+              const i = l.indexOf('=');
+              return [l.slice(0, i).trim(), l.slice(i + 1)];
+            })
+        : []
+    );
+
+    const result = await deployRuntime.startDeploy({
+      deployDir,
+      hostPort:
+        (runConfig.environment || fileEnv.FORJA_ENVIRONMENT) === 'staging'
+          ? config.stagingHostPort
+          : config.deployHostPort,
+      env: {
+        ...fileEnv,
+        JWT_SECRET: fileEnv.JWT_SECRET || secureJwtSecret,
+        NODE_ENV: fileEnv.NODE_ENV || 'production',
+        CORS_ORIGIN:
+          fileEnv.CORS_ORIGIN && fileEnv.CORS_ORIGIN !== '*'
+            ? fileEnv.CORS_ORIGIN
+            : process.env.CORS_ORIGIN || config.corsOrigin || 'http://127.0.0.1:3001',
+        EMBEDDING_PROVIDER: fileEnv.EMBEDDING_PROVIDER || 'local',
+        DB_PATH: fileEnv.DB_PATH || './data/rag.db',
+        DATABASE_PATH: fileEnv.DATABASE_PATH || './data/auth.sqlite',
+        FORJA_ENVIRONMENT: runConfig.environment === 'staging' ? 'staging' : 'local'
+      },
+      orchestrator
+    });
+
+    orchestrator.log(
+      'devops',
+      `Deploy pronto (${result.type}) em ${result.url}.`,
+      'success'
+    );
+
+    return {
+      url: result.url,
+      path: relativeTarget,
+      runtime: result.type,
+      containerId: result.containerId || null,
+      image: result.image || null
+    };
+  }
+};

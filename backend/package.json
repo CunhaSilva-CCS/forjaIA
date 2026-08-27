@@ -1,0 +1,31 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon --watch server.js --watch agent --watch lib --ignore sandbox/tmp-sandbox --ignore tmp-sandbox --ignore workspace --ignore dev --ignore data --ignore db --delay 2000 server.js",
+    "start": "node server.js",
+    "dev:stable": "node server.js",
+    "dev:watch": "nodemon --watch server.js --watch agent --watch lib --ignore tmp-sandbox --ignore workspace --ignore dev --ignore data --ignore db --delay 2000 server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
+    "dockerode": "^5.0.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pdfkit": "^0.20.1",
+    "ws": "^8.21.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

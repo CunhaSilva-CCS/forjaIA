@@ -1,0 +1,33 @@
+{
+  "name": "forjaia",
+  "version": "1.0.0",
+  "description": "ForjaIA — forja local self-hosted de software com agentes",
+  "main": "index.js",
+  "scripts": {
+    "start": "concurrently \"npm run start --prefix backend\" \"npm run start --prefix frontend\"",
+    "start:local-prod": "npm run build && NODE_ENV=production node scripts/check-local-prod.js && NODE_ENV=production npm run start --prefix backend",
+    "check:local-prod": "NODE_ENV=production node scripts/check-local-prod.js",
+    "service": "node scripts/forja-service.js",
+    "service:status": "node scripts/forja-service.js status",
+    "service:start": "node scripts/forja-service.js start",
+    "service:stop": "node scripts/forja-service.js stop",
+    "service:restart": "node scripts/forja-service.js restart",
+    "service:watch": "node scripts/forja-service.js watch",
+    "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev:stable": "concurrently \"npm run start --prefix backend\" \"npm run dev --prefix frontend\"",
+    "test": "npm test --prefix backend",
+    "build": "npm run build --prefix frontend"
+  },
+  "keywords": [
+    "forjaia",
+    "agents",
+    "self-hosted"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "concurrently": "^10.0.5",
+    "dotenv": "^17.4.2"
+  }
+}

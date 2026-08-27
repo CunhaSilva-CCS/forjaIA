@@ -1,0 +1,388 @@
+const path = require('path');
+const fs = require('fs');
+
+async function runAuthTests(baseUrl, orchestrator) {
+  const tests = [
+    { name: 'Cadastro de Usuário - Sucesso', passed: false, error: null },
+    { name: 'Cadastro de Usuário - Falha (Dados incompletos)', passed: false, error: null },
+    { name: 'Login de Usuário - Sucesso', passed: false, error: null },
+    { name: 'Login de Usuário - Falha (Senha incorreta)', passed: false, error: null },
+    { name: 'Acesso a Rota Protegida com Token Válido', passed: false, error: null },
+    { name: 'Acesso a Rota Protegida Sem Token (Bloqueado)', passed: false, error: null }
+  ];
+
+  const testUser = {
+    name: 'QA Engineer',
+    email: `qa.${Date.now()}@test.com`,
+    password: 'Password123!'
+  };
+
+  const isOkStatus = (data) =>
+    data?.success === true || data?.status === 'success' || data?.status === 'ok';
+  const isFailStatus = (data) =>
+    data?.success === false ||
+    data?.status === 'error' ||
+    data?.status === 'fail' ||
+    Boolean(data?.error || data?.message);
+  const pickToken = (data) =>
+    data?.token || data?.accessToken || data?.data?.token || data?.data?.accessToken || null;
+  const pickUser = (data) => data?.user || data?.data?.user || null;
+
+  let token = '';
+
+  try {
+    // Teste 1: Cadastro Sucesso
+    orchestrator.log('qa', 'Executando teste: Cadastro de Usuário - Sucesso...', 'info');
+    let res = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testUser)
+    });
+    let data = await res.json().catch(() => ({}));
+    if ((res.status === 201 || res.status === 200) && (isOkStatus(data) || pickToken(data) || pickUser(data))) {
+      tests[0].passed = true;
+      token = pickToken(data) || token;
+    } else {
+      tests[0].error = `Código HTTP: ${res.status}, Resposta: ${JSON.stringify(data)}`;
+    }
+
+    // Teste 2: Cadastro Falha
+    orchestrator.log('qa', 'Executando teste: Cadastro de Usuário - Falha...', 'info');
+    res = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'incomplete@test.com' })
+    });
+    data = await res.json().catch(() => ({}));
+    if (res.status >= 400 && res.status < 500) {
+      tests[1].passed = true;
+    } else {
+      tests[1].error = `Esperado status 4xx. Recebido: ${res.status}. Resposta: ${JSON.stringify(data)}`;
+    }
+
+    // Teste 3: Login Sucesso
+    orchestrator.log('qa', 'Executando teste: Login de Usuário - Sucesso...', 'info');
+    res = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: testUser.email, password: testUser.password })
+    });
+    data = await res.json().catch(() => ({}));
+    const loginToken = pickToken(data);
+    if (res.status === 200 && loginToken) {
+      tests[2].passed = true;
+      token = loginToken;
+    } else {
+      tests[2].error = `Esperado status 200 com Token JWT. Recebido: ${res.status}. Resposta: ${JSON.stringify(data)}`;
+    }
+
+    // Teste 4: Login Falha
+    orchestrator.log('qa', 'Executando teste: Login de Usuário - Falha (Senha incorreta)...', 'info');
+    res = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: testUser.email, password: 'wrongpassword' })
+    });
+    data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403 || (res.status >= 400 && isFailStatus(data))) {
+      tests[3].passed = true;
+    } else {
+      tests[3].error = `Esperado status 401. Recebido: ${res.status}. Resposta: ${JSON.stringify(data)}`;
+    }
+
+    // Teste 5: Rota Protegida Sucesso
+    if (token) {
+      orchestrator.log('qa', 'Executando teste: Rota Protegida com Token Válido...', 'info');
+      res = await fetch(`${baseUrl}/api/auth/me`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      data = await res.json().catch(() => ({}));
+      if (res.status === 200 && (pickUser(data) || isOkStatus(data))) {
+        tests[4].passed = true;
+      } else {
+        tests[4].error = `Esperado status 200 com payload usuário. Recebido: ${res.status}. Resposta: ${JSON.stringify(data)}`;
+      }
+    } else {
+      tests[4].error = 'Ignorado devido a falha no teste de login.';
+    }
+
+    // Teste 6: Rota Protegida Sem Token
+    orchestrator.log('qa', 'Executando teste: Rota Protegida Sem Token (Bloqueado)...', 'info');
+    res = await fetch(`${baseUrl}/api/auth/me`, {
+      method: 'GET'
+    });
+    data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) {
+      tests[5].passed = true;
+    } else {
+      tests[5].error = `Esperado status 401. Recebido: ${res.status}. Resposta: ${JSON.stringify(data)}`;
+    }
+  } catch (err) {
+    orchestrator.log('qa', `Falha de rede ao conectar à API na Sandbox: ${err.message}`, 'error');
+    tests.forEach((t) => {
+      if (!t.passed && !t.error) t.error = err.message;
+    });
+  }
+
+  const passedCount = tests.filter((t) => t.passed).length;
+  return {
+    passed: passedCount === tests.length,
+    tests
+  };
+}
+
+async function runCrudTests(baseUrl, orchestrator) {
+  const tests = [
+    { name: 'Listar Tarefas (GET /api/tasks) - Sucesso', passed: false, error: null },
+    { name: 'Criar Tarefa (POST /api/tasks) - Sucesso', passed: false, error: null },
+    { name: 'Criar Tarefa - Falha (Sem título)', passed: false, error: null },
+    { name: 'Atualizar Tarefa (PUT /api/tasks/:id) - Sucesso', passed: false, error: null },
+    { name: 'Deletar Tarefa (DELETE /api/tasks/:id) - Sucesso', passed: false, error: null }
+  ];
+
+  let createdTaskId = null;
+
+  try {
+    // Teste 1: GET /api/tasks
+    orchestrator.log('qa', 'Executando teste: Listar Tarefas...', 'info');
+    let res = await fetch(`${baseUrl}/api/tasks`);
+    let data = await res.json();
+    if (res.status === 200 && data.success === true && Array.isArray(data.tasks)) {
+      tests[0].passed = true;
+    } else {
+      tests[0].error = `Erro ao recuperar tarefas. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
+    }
+
+    // Teste 2: POST /api/tasks
+    orchestrator.log('qa', 'Executando teste: Criar Tarefa...', 'info');
+    res = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Nova Tarefa de QA', description: 'Criada nos testes automatizados' })
+    });
+    data = await res.json();
+    if (res.status === 201 && data.success === true && data.task && data.task.id) {
+      tests[1].passed = true;
+      createdTaskId = data.task.id;
+    } else {
+      tests[1].error = `Erro ao criar tarefa. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
+    }
+
+    // Teste 3: POST /api/tasks (Sem título)
+    orchestrator.log('qa', 'Executando teste: Criar Tarefa sem Título (Falha esperada)...', 'info');
+    res = await fetch(`${baseUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'Sem título' })
+    });
+    data = await res.json();
+    if (res.status === 400 && data.success === false) {
+      tests[2].passed = true;
+    } else {
+      tests[2].error = `Esperado status 400. Status obtido: ${res.status}, Resposta: ${JSON.stringify(data)}`;
+    }
+
+    // Teste 4: PUT /api/tasks/:id
+    if (createdTaskId) {
+      orchestrator.log('qa', 'Executando teste: Atualizar Tarefa...', 'info');
+      res = await fetch(`${baseUrl}/api/tasks/${createdTaskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Tarefa Atualizada pelo QA', completed: true })
+      });
+      data = await res.json();
+      if (res.status === 200 && data.success === true && data.task.completed === true) {
+        tests[3].passed = true;
+      } else {
+        tests[3].error = `Erro ao atualizar. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
+      }
+    } else {
+      tests[3].error = 'Ignorado devido a falha na criação da tarefa.';
+    }
+
+    // Teste 5: DELETE /api/tasks/:id
+    if (createdTaskId) {
+      orchestrator.log('qa', 'Executando teste: Deletar Tarefa...', 'info');
+      res = await fetch(`${baseUrl}/api/tasks/${createdTaskId}`, {
+        method: 'DELETE'
+      });
+      data = await res.json();
+      if (res.status === 200 && data.success === true) {
+        tests[4].passed = true;
+      } else {
+        tests[4].error = `Erro ao deletar. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
+      }
+    } else {
+      tests[4].error = 'Ignorado devido a falha na criação da tarefa.';
+    }
+
+  } catch (err) {
+    orchestrator.log('qa', `Falha de rede ao conectar à API na Sandbox: ${err.message}`, 'error');
+    tests.forEach(t => { if (!t.passed && !t.error) t.error = err.message; });
+  }
+
+  const passedCount = tests.filter(t => t.passed).length;
+  return {
+    passed: passedCount === tests.length,
+    tests
+  };
+}
+
+async function runRagTests(baseUrl, orchestrator) {
+  const tests = [
+    { name: 'Health check RAG', passed: false, error: null },
+    { name: 'Ingestão de texto', passed: false, error: null },
+    { name: 'Query com retrieval', passed: false, error: null },
+    { name: 'Query inválida (400)', passed: false, error: null }
+  ];
+
+  try {
+    orchestrator.log('qa', 'Executando teste: Health check RAG...', 'info');
+    let res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
+    let data = await res.json();
+    if (res.ok && data.ok === true) tests[0].passed = true;
+    else tests[0].error = `HTTP ${res.status}: ${JSON.stringify(data)}`;
+
+    orchestrator.log('qa', 'Executando teste: Ingestão de texto...', 'info');
+    res = await fetch(`${baseUrl}/api/ingest/text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Doc QA',
+        text: 'O ForjaIA valida projetos existentes com QA, Segurança, Curador e DevOps.'
+      }),
+      signal: AbortSignal.timeout(30000)
+    });
+    data = await res.json();
+    if (res.status === 201 && data.success === true) tests[1].passed = true;
+    else tests[1].error = `HTTP ${res.status}: ${JSON.stringify(data)}`;
+
+    orchestrator.log('qa', 'Executando teste: Query com retrieval...', 'info');
+    res = await fetch(`${baseUrl}/api/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'O que o ForjaIA valida?', generate: false }),
+      signal: AbortSignal.timeout(30000)
+    });
+    data = await res.json();
+    if (res.ok && data.success === true && Array.isArray(data.matches) && data.matches.length > 0) {
+      tests[2].passed = true;
+    } else tests[2].error = `HTTP ${res.status}: ${JSON.stringify(data)}`;
+
+    orchestrator.log('qa', 'Executando teste: Query inválida...', 'info');
+    res = await fetch(`${baseUrl}/api/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: '' }),
+      signal: AbortSignal.timeout(5000)
+    });
+    if (res.status === 400) tests[3].passed = true;
+    else {
+      data = await res.json().catch(() => ({}));
+      tests[3].error = `Esperado 400. Recebido ${res.status}: ${JSON.stringify(data)}`;
+    }
+  } catch (err) {
+    orchestrator.log('qa', `Falha de rede na sandbox RAG: ${err.message}`, 'error');
+    tests.forEach((t) => {
+      if (!t.passed && !t.error) t.error = err.message;
+    });
+  }
+
+  return {
+    passed: tests.every((t) => t.passed),
+    tests
+  };
+}
+
+function detectSuite(files) {
+  const blob = files.map((f) => `${f.path}\n${f.content || ''}`).join('\n').toLowerCase();
+  if (blob.includes('/api/ingest') || blob.includes('queryrag') || blob.includes('rag-profissional') || blob.includes('similaritysearch')) {
+    return 'rag';
+  }
+  if (blob.includes('/api/auth') || blob.includes('authcontroller') || blob.includes('jwt')) {
+    return 'auth';
+  }
+  return 'crud';
+}
+
+module.exports = {
+  execute: async (files, config, orchestrator) => {
+    const { announceThinking, thinkAsSenior } = require('../lib/seniorEngineer');
+    announceThinking(orchestrator, 'qa');
+
+    const sandboxRunner = require('../sandbox/runner');
+    let sandboxInfo;
+
+    try {
+      sandboxInfo = await sandboxRunner.start(files, orchestrator);
+    } catch (e) {
+      orchestrator.log('qa', `Erro ao inicializar sandbox para testes: ${e.message}`, 'error');
+      return {
+        passed: false,
+        tests: [{ name: 'Inicialização da Sandbox', passed: false, error: e.message }]
+      };
+    }
+
+    const suite = detectSuite(files);
+    let report;
+    if (suite === 'rag') {
+      orchestrator.log('qa', 'Executando suíte de testes RAG...', 'info');
+      report = await runRagTests(sandboxInfo.baseUrl, orchestrator);
+    } else if (suite === 'auth') {
+      orchestrator.log('qa', 'Executando suíte de testes de Autenticação/JWT...', 'info');
+      report = await runAuthTests(sandboxInfo.baseUrl, orchestrator);
+    } else {
+      orchestrator.log('qa', 'Executando suíte de testes CRUD de Tarefas...', 'info');
+      report = await runCrudTests(sandboxInfo.baseUrl, orchestrator);
+    }
+
+    await sandboxRunner.stop(orchestrator);
+
+    const senior = await thinkAsSenior({
+      role: 'qa',
+      taskContract: `Revise os resultados de QA como um sênior de testes.
+Identifique lacunas de cobertura, riscos de regressão e severidade das falhas.
+Retorne APENAS JSON:
+{
+  "verdict": "aprovado|ressalvas|reprovado",
+  "summary": "1-3 frases",
+  "coverageGaps": ["caso ausente..."],
+  "failureAnalysis": [{"test":"nome","rootCauseHint":"...","severity":"baixa|media|alta"}],
+  "notesForDebugger": "o que o Depurador deve priorizar se houver falhas"
+}`,
+      userPayload: {
+        suite,
+        passed: report.passed,
+        tests: report.tests,
+        files: (files || []).map((f) => f.path)
+      },
+      runConfig: config,
+      orchestrator
+    });
+
+    if (senior) {
+      report.seniorReview = senior;
+      if (senior.summary) {
+        orchestrator.log('qa', `Sênior QA: ${senior.summary}`, senior.verdict === 'aprovado' ? 'success' : 'warning');
+      }
+      if (Array.isArray(senior.coverageGaps) && senior.coverageGaps.length) {
+        orchestrator.log('qa', `Lacunas: ${senior.coverageGaps.slice(0, 3).join(' · ')}`, 'warning');
+      }
+    }
+
+    if (report.passed) {
+      orchestrator.log('qa', 'Todos os testes passaram com sucesso!', 'success');
+    } else {
+      orchestrator.log(
+        'qa',
+        `Alguns testes falharam: ${report.tests.filter((t) => !t.passed).length} falhas registradas.`,
+        'error'
+      );
+    }
+
+    return report;
+  }
+};
