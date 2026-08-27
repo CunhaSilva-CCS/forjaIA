@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const Docker = require('dockerode');
 const config = require('./config');
+const dockerBuild = require('./dockerBuild');
 
 const IMAGE_TAG = 'forja-prod-deploy';
 const CONTAINER_PORT = 3000;
@@ -14,76 +15,13 @@ let active = {
   docker: null
 };
 
-function detectStartCommand(deployDir) {
-  const pkgPath = path.join(deployDir, 'package.json');
-  if (fs.existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-      if (pkg.scripts?.start) {
-        const parts = String(pkg.scripts.start).trim().split(/\s+/);
-        if (parts[0] === 'node' && parts[1]) return { cmd: 'node', args: parts.slice(1) };
-        return { cmd: 'npm', args: ['start'] };
-      }
-      if (pkg.main) return { cmd: 'node', args: [pkg.main] };
-    } catch {
-      // ignore
-    }
-  }
-  if (fs.existsSync(path.join(deployDir, 'src/server.js'))) {
-    return { cmd: 'node', args: ['src/server.js'] };
-  }
-  if (fs.existsSync(path.join(deployDir, 'server.js'))) {
-    return { cmd: 'node', args: ['server.js'] };
-  }
-  return null;
-}
-
-function needsCompile(deployDir, start) {
-  const pkgPath = path.join(deployDir, 'package.json');
-  let pkg = {};
-  if (fs.existsSync(pkgPath)) {
-    try {
-      pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    } catch {
-      pkg = {};
-    }
-  }
-  if (pkg.scripts?.build) return true;
-  if (fs.existsSync(path.join(deployDir, 'tsconfig.json'))) return true;
-  const entry = start?.args?.[0] || '';
-  if (String(entry).startsWith('dist/') || String(entry).endsWith('.ts')) return true;
-  if (String(pkg.main || '').startsWith('dist/')) return true;
-  return false;
-}
+const detectStartCommand = dockerBuild.detectStartCommand;
 
 function buildProdDockerfile(deployDir, start) {
-  const cmdJson = JSON.stringify([start.cmd, ...start.args]);
-  const compile = needsCompile(deployDir, start);
-  const needsNative =
-    fs.existsSync(path.join(deployDir, 'package.json')) &&
-    /better-sqlite3|sharp|bcrypt(?!js)|node-gyp/.test(
-      fs.readFileSync(path.join(deployDir, 'package.json'), 'utf8')
-    );
-  const nativeDeps = needsNative
-    ? 'RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \\\n'
-      + '  && rm -rf /var/lib/apt/lists/*\n'
-    : '';
-  const install = compile ? 'RUN npm install' : 'RUN npm install --omit=dev';
-  const buildStep = compile
-    ? 'RUN npm run build || (test -f tsconfig.json && npx tsc)\n'
-    : '';
-
-  return `FROM node:20-slim
-WORKDIR /app
-${nativeDeps}COPY package.json package-lock.json* ./
-${install}
-COPY . .
-${buildStep}ENV NODE_ENV=production
-ENV PORT=${CONTAINER_PORT}
-ENV HOST=0.0.0.0
-EXPOSE ${CONTAINER_PORT}
-CMD ${cmdJson}
-`;
+  return dockerBuild.buildDockerfile(deployDir, start, {
+    containerPort: CONTAINER_PORT,
+    nodeEnv: 'production'
+  });
 }
 
 async function waitForHttp(baseUrl, { attempts = 30, delayMs = 1200, orchestrator, container } = {}) {

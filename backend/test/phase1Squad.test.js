@@ -49,4 +49,14 @@ describe('Phase 1 team + queue', () => {
     assert.equal(q.status, 'queued');
     assert.equal(runs.listQueued().length, 1);
   });
+
+  it('resolveByToken continua reconhecendo o admin após a comparação virar constant-time', () => {
+    const config = fresh('../lib/config');
+    const { team } = fresh('../lib/team');
+    const admin = team.resolveByToken(config.apiToken);
+    assert.equal(admin.isAdmin, true);
+    assert.equal(admin.role, 'admin');
+    assert.equal(team.resolveByToken('token-errado-qualquer'), null);
+    assert.equal(team.resolveByToken(''), null);
+  });
 });

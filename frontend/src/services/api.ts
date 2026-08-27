@@ -1,5 +1,10 @@
 import { API_BASE, getStoredToken } from '../config';
-import type { ADR, Project, RunSummary } from '../types/agent';
+import type { ADR, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
+
+interface RunQueuedResponse {
+  queued?: boolean;
+  message?: string;
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
@@ -29,6 +34,40 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res as unknown as T;
 }
 
+function filenameFromDisposition(value: string | null, fallback: string): string {
+  const match = value ? /filename="?([^"; ]+)"?/i.exec(value) : null;
+  return match?.[1] || fallback;
+}
+
+async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const token = getStoredToken();
+  const headers = new Headers();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, { headers });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const data = await res.json();
+      message = data.error || message;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+
+  const filename = filenameFromDisposition(res.headers.get('content-disposition'), fallbackName);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export const api = {
   health: () => request<Record<string, unknown>>('/api/health'),
   llmStatus: (provider?: string) =>
@@ -40,7 +79,7 @@ export const api = {
       latencyMs: number;
       detail: string;
     }>(`/api/llm/status${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
-  status: () => request<{ isExecuting: boolean; task: any }>('/api/agent/status'),
+  status: () => request<{ isExecuting: boolean; task: Task | null }>('/api/agent/status'),
   dockerStatus: () => request<{ active: boolean; required: boolean }>('/api/docker/status'),
   ollamaModels: () => request<{ online: boolean; models: string[] }>('/api/ollama/models'),
   workspace: () => request<{ workspaceRoot: string; defaultPath: string }>('/api/workspace'),
@@ -75,14 +114,8 @@ export const api = {
   runs: {
     list: () => request<RunSummary[]>('/api/runs'),
     get: (id: string) => request<RunSummary>(`/api/runs/${id}`),
-    exportUrl: (id: string) => {
-      const token = encodeURIComponent(getStoredToken());
-      return `${API_BASE}/api/runs/${id}/export?token=${token}`;
-    },
-    reportPdfUrl: (id: string) => {
-      const token = encodeURIComponent(getStoredToken());
-      return `${API_BASE}/api/runs/${id}/report.pdf?token=${token}`;
-    },
+    downloadExport: (id: string) => downloadFile(`/api/runs/${id}/export`, `${id}.zip`),
+    downloadReportPdf: (id: string) => downloadFile(`/api/runs/${id}/report.pdf`, `${id}.pdf`),
     fileVersions: (id: string, filePath: string) =>
       request<Array<{ id: number; path: string; content: string; version: number }>>(
         `/api/runs/${id}/files/${encodeURIComponent(filePath)}/versions`
@@ -112,12 +145,12 @@ export const api = {
       body: JSON.stringify({ path })
     }),
   run: (prompt: string, config: Record<string, unknown>) =>
-    request('/api/agent/run', {
+    request<RunQueuedResponse>('/api/agent/run', {
       method: 'POST',
       body: JSON.stringify({ prompt, config })
     }),
   validate: (sourcePath: string, config: Record<string, unknown> = {}) =>
-    request('/api/agent/validate', {
+    request<RunQueuedResponse>('/api/agent/validate', {
       method: 'POST',
       body: JSON.stringify({ sourcePath, config })
     }),
@@ -133,21 +166,10 @@ export const api = {
     }),
   cancel: () => request('/api/agent/cancel', { method: 'POST' }),
   team: {
-    list: () =>
-      request<{
-        admin: { id: string; name: string; role: string; tokenHint: string };
-        members: Array<{ id: string; name: string; role: string; tokenHint?: string }>;
-        bootstrapTokens: Record<string, string> | null;
-        stageRoles: Record<string, string[]>;
-      }>('/api/team'),
+    list: () => request<TeamInfo>('/api/team'),
     me: () =>
       request<{ id: string; name: string; role: string; isAdmin: boolean }>('/api/team/me'),
-    board: () =>
-      request<{
-        queued: any[];
-        awaiting: any[];
-        recent: any[];
-      }>('/api/team/board'),
+    board: () => request<TeamBoard>('/api/team/board'),
     createMember: (body: { name: string; role: string; token: string }) =>
       request('/api/team/members', { method: 'POST', body: JSON.stringify(body) })
   },

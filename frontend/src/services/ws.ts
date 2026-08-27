@@ -1,6 +1,6 @@
 import { WS_URL, getStoredToken } from '../config';
 
-type Handler = (event: string, data: any) => void;
+type Handler = (event: string, data: unknown) => void;
 
 export function connectAgentSocket(onMessage: Handler, onStatus: (connected: boolean) => void) {
   let ws: WebSocket | null = null;
@@ -26,7 +26,7 @@ export function connectAgentSocket(onMessage: Handler, onStatus: (connected: boo
     };
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data);
+        const msg = JSON.parse(event.data) as { event: string; data: unknown };
         onMessage(msg.event, msg.data);
       } catch {
         // ignore

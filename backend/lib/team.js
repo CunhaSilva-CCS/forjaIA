@@ -1,5 +1,13 @@
+const crypto = require('crypto');
 const { normalizeRole, hashToken, adminIdentity } = require('./rbac');
 const config = require('./config');
+
+/** Compara com o token do admin em tempo constante (evita timing attack). */
+function isAdminToken(token) {
+  const provided = Buffer.from(hashToken(token), 'hex');
+  const expected = Buffer.from(hashToken(config.apiToken), 'hex');
+  return crypto.timingSafeEqual(provided, expected);
+}
 
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -120,7 +128,7 @@ const team = {
 
   resolveByToken(token) {
     if (!token) return null;
-    if (token === config.apiToken) return adminIdentity();
+    if (isAdminToken(token)) return adminIdentity();
     const th = hashToken(token);
     const row = getDb()
       .prepare('SELECT * FROM team_members WHERE token_hash = ? AND active = 1')

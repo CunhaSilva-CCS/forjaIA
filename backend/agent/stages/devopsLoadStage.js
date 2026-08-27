@@ -7,13 +7,13 @@ async function run(orchestrator, runConfig) {
   orchestrator.log('devops', 'Preparando sandbox para testes de carga e caos...', 'info');
 
   const sandboxConfig = await devops.prepareSandbox(orchestrator.currentTask.files, runConfig, orchestrator);
-  orchestrator.log('devops', 'Iniciando teste de carga com injeção de falhas no cliente (caos)...', 'warning');
+  orchestrator.log('devops', 'Iniciando teste de carga com engenharia do caos...', 'warning');
   const loadTester = require('../../sandbox/load_tester');
   const chaos = require('../../sandbox/chaos');
 
-  chaos.start(orchestrator);
+  chaos.start(orchestrator, sandboxConfig);
   const metrics = await loadTester.run(sandboxConfig, orchestrator, orchestrator.currentTask.files);
-  chaos.stop(orchestrator);
+  await chaos.stop(orchestrator, sandboxConfig);
 
   orchestrator.currentTask.performanceMetrics = metrics;
   orchestrator.persistTask({ performanceMetrics: metrics });

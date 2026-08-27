@@ -49,9 +49,11 @@ export interface PerformanceMetrics {
 
 export interface ChaosEvent {
   name: string;
-  latency: number;
-  loss: number;
+  latency?: number;
+  loss?: number;
   log: string;
+  /** true quando o fault foi aplicado de verdade no container (tc netem/cota de CPU), não simulado. */
+  real?: boolean;
 }
 
 export interface Diagnosis {
@@ -88,6 +90,51 @@ export interface Project {
   existsOnDisk?: boolean;
 }
 
+/** Evento de log bruto como vem do backend (run_events), antes de normalizado em LogLine. */
+export interface RunEvent {
+  agent?: string;
+  message: string;
+  type: string;
+  created_at: string;
+}
+
+export interface TaskConfig {
+  mode?: PipelineMode;
+  pendingNextStage?: string;
+  targetPath?: string;
+  sourcePath?: string;
+  llmProvider?: LlmProvider;
+  useOllama?: boolean;
+  lastDiagnosis?: Diagnosis;
+  lastUserReport?: string | null;
+}
+
+/** Snapshot do orchestrator.currentTask — recebido via WebSocket e /api/agent/status. */
+export interface Task {
+  id?: string;
+  status?: string;
+  pendingNextStage?: string | null;
+  approvalMessage?: string | null;
+  config?: TaskConfig;
+  prompt?: string;
+  files?: FileData[];
+  adrs?: ADR[];
+  tests?: TestItem[];
+  securityIssues?: SecurityIssue[];
+  diagnosis?: Diagnosis | null;
+  performanceMetrics?: PerformanceMetrics | null;
+  deployUrl?: string | null;
+  tokenStats?: TokenStats;
+  error?: string | null;
+  humanReport?: HumanReport | null;
+}
+
+export interface HumanReport {
+  passed?: boolean;
+  issues?: unknown[];
+  session?: { steps?: Array<{ ok: boolean }> };
+}
+
 export interface RunSummary {
   id: string;
   project_id: string | null;
@@ -103,7 +150,39 @@ export interface RunSummary {
   securityIssues?: SecurityIssue[];
   performanceMetrics?: PerformanceMetrics | null;
   tokenStats?: TokenStats;
-  events?: LogLine[];
+  events?: RunEvent[];
+  config?: TaskConfig;
+  diagnosis?: Diagnosis | null;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  tokenHint?: string;
+  active?: boolean;
+  createdAt?: string | null;
+}
+
+export interface TeamBoardRun {
+  id: string;
+  queue_position?: number | null;
+  owner_name?: string | null;
+  prompt?: string;
+  config?: TaskConfig;
+}
+
+export interface TeamBoard {
+  queued: TeamBoardRun[];
+  awaiting: TeamBoardRun[];
+  recent: TeamBoardRun[];
+}
+
+export interface TeamInfo {
+  admin: { id: string; name: string; role: string; tokenHint: string };
+  members: TeamMember[];
+  bootstrapTokens: Record<string, string> | null;
+  stageRoles: Record<string, string[]>;
 }
 
 export interface TokenStats {

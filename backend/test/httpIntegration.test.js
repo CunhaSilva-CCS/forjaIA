@@ -1,0 +1,146 @@
+const { describe, it, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+process.env.FORJA_API_TOKEN = 'http-integration-token-24-chars';
+process.env.FORJA_ALLOW_MOCKS = 'true';
+process.env.FORJA_REQUIRE_DOCKER = 'false';
+process.env.FORJA_WORKSPACE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-http-'));
+process.env.FORJA_DB_PATH = path.join(os.tmpdir(), `forja-http-${Date.now()}.db`);
+process.env.HOST = '127.0.0.1';
+process.env.PORT = '3094';
+process.env.CORS_ORIGIN = 'http://127.0.0.1:3094';
+
+const BASE = `http://${process.env.HOST}:${process.env.PORT}`;
+const TOKEN = process.env.FORJA_API_TOKEN;
+
+let handle;
+
+async function waitForHealth(timeoutMs = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`${BASE}/api/health`);
+      if (res.ok) return;
+    } catch {
+      // ainda subindo
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error('servidor não ficou saudável a tempo');
+}
+
+describe('HTTP integration (server.js real, via fetch)', () => {
+  before(async () => {
+    handle = require('../server');
+    await waitForHealth();
+  });
+
+  after(async () => {
+    await new Promise((resolve) => handle.server.close(() => resolve()));
+  });
+
+  it('GET /api/health é público e responde 200', async () => {
+    const res = await fetch(`${BASE}/api/health`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.authRequired, true);
+  });
+
+  it('GET /api/llm/status é público e responde 200', async () => {
+    const res = await fetch(`${BASE}/api/llm/status`);
+    assert.equal(res.status, 200);
+  });
+
+  it('rota protegida sem token retorna 401', async () => {
+    const res = await fetch(`${BASE}/api/runs`);
+    assert.equal(res.status, 401);
+  });
+
+  it('rota protegida com token inválido retorna 401', async () => {
+    const res = await fetch(`${BASE}/api/runs`, {
+      headers: { Authorization: 'Bearer token-totalmente-errado' }
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it('rota protegida com token válido retorna 200', async () => {
+    const res = await fetch(`${BASE}/api/runs`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(await res.json()));
+  });
+
+  it('cabeçalhos de segurança do helmet estão presentes', async () => {
+    const res = await fetch(`${BASE}/api/health`);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN');
+  });
+
+  it('cabeçalhos de rate limit estão presentes', async () => {
+    const res = await fetch(`${BASE}/api/health`);
+    assert.ok(res.headers.get('ratelimit-limit'));
+  });
+
+  it('POST /api/projects rejeita corpo inválido com 400', async () => {
+    const res = await fetch(`${BASE}/api/projects`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('POST /api/projects cria um projeto válido (201)', async () => {
+    const res = await fetch(`${BASE}/api/projects`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'demo', path: 'demo-app' })
+    });
+    assert.equal(res.status, 201);
+    const body = await res.json();
+    assert.equal(body.name, 'demo');
+    assert.equal(body.path, 'demo-app');
+  });
+
+  it('GET /api/runs/:id inexistente retorna 404', async () => {
+    const res = await fetch(`${BASE}/api/runs/nao-existe`, {
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('GET /api/team: admin vê bootstrapTokens, membro comum não vê', async () => {
+    const adminRes = await fetch(`${BASE}/api/team`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    assert.equal(adminRes.status, 200);
+    const adminBody = await adminRes.json();
+    assert.ok(adminBody.bootstrapTokens, 'admin deveria ver os tokens de bootstrap');
+    const leadToken = adminBody.bootstrapTokens.lead;
+
+    const leadRes = await fetch(`${BASE}/api/team`, { headers: { Authorization: `Bearer ${leadToken}` } });
+    assert.equal(leadRes.status, 200);
+    const leadBody = await leadRes.json();
+    assert.equal(leadBody.bootstrapTokens, null, 'membro não-admin não deveria ver os tokens de bootstrap');
+  });
+
+  it('POST /api/team/members exige admin', async () => {
+    const adminRes = await fetch(`${BASE}/api/team`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const { bootstrapTokens } = await adminRes.json();
+
+    const asLead = await fetch(`${BASE}/api/team/members`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootstrapTokens.lead}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Novo', role: 'qa', token: 'token-novo-membro-24-chars' })
+    });
+    assert.equal(asLead.status, 403);
+
+    const asAdmin = await fetch(`${BASE}/api/team/members`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Novo', role: 'qa', token: 'token-novo-membro-24-chars' })
+    });
+    assert.equal(asAdmin.status, 201);
+  });
+});

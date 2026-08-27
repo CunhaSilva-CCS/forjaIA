@@ -75,11 +75,13 @@ npm run dev:stable
 ## Testes
 
 ```bash
-npm test --prefix backend
+npm test              # backend (node --test) + frontend (vitest)
+npm run test:backend
+npm run test:frontend
 ```
 
 ## Observações
 
-- As métricas de caos usam **injeção de falhas no cliente** durante o teste de carga (documentado nas métricas), não comprometimento da rede do host.
+- Engenharia do caos: com sandbox Docker disponível, os faults são **reais** contra o container (`tc netem` para latência/perda de pacotes via container-sidecar, `container.update()` para reduzir a cota de CPU) — não simulação. Sem Docker (ou se a operação real falhar), cai automaticamente para injeção de falhas no cliente (documentado no campo `chaosMode` das métricas). Em nenhum dos dois casos há comprometimento da rede do host.
 - Segredos (Gemini) ficam só no servidor — nunca são enviados pela interface.
 # forjaIA

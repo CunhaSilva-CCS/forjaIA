@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
@@ -29,6 +31,7 @@ const {
 } = require('./lib/seniorEngineer');
 
 const app = express();
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
   cors({
     origin: config.corsOrigin,
@@ -36,6 +39,28 @@ app.use(
   })
 );
 app.use(express.json({ limit: '2mb' }));
+
+// Limite geral: gera bastante tráfego legítimo de polling (status de serviço, health, etc.),
+// então a janela é generosa — o objetivo é conter abuso, não o uso normal da UI.
+const apiLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' }
+});
+app.use('/api', apiLimiter);
+
+// Limite específico para tentativas de token inválido — só conta respostas de erro
+// (skipSuccessfulRequests), então não penaliza uso normal autenticado.
+const authAttemptLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'Muitas tentativas de autenticação inválidas. Aguarde antes de tentar de novo.' }
+});
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({
@@ -93,7 +118,7 @@ app.get('/api/llm/status', async (req, res) => {
   }
 });
 
-app.use('/api', authMiddleware);
+app.use('/api', authAttemptLimiter, authMiddleware);
 
 app.get('/api/preferences', (req, res) => {
   ensureDefaultPreferences();
@@ -256,11 +281,17 @@ app.get('/api/agent/status', (req, res) => {
   });
 });
 
-app.get('/api/team', (_req, res) => {
+app.get('/api/team', (req, res) => {
   try {
     const { team } = require('./lib/team');
     const { STAGE_ROLES } = require('./lib/rbac');
-    res.json({ ...team.listWithBootstrapHints(), stageRoles: STAGE_ROLES });
+    const info = team.listWithBootstrapHints();
+    const isAdmin = Boolean(req.member?.isAdmin) || req.member?.role === 'admin';
+    res.json({
+      ...info,
+      bootstrapTokens: isAdmin ? info.bootstrapTokens : null,
+      stageRoles: STAGE_ROLES
+    });
   } catch (err) {
     handleError(res, err);
   }
@@ -596,3 +627,5 @@ server.listen(config.port, config.host, () => {
     console.log(`Regras de Engenheiro Sênior elite carregadas (${seeded.styleRules.length}).`);
   }
 });
+
+module.exports = { app, server, orchestrator };

@@ -10,7 +10,7 @@
  *   node scripts/forja-service.js watch          # auto-reinicia se cair
  *   node scripts/forja-service.js watch --once   # um ciclo e sai
  */
-const { spawn, execSync } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -79,7 +79,7 @@ function checkHealth() {
 
 function listListenPids() {
   try {
-    const out = execSync(`lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t`, {
+    const out = execFileSync('lsof', ['-nP', `-iTCP:${PORT}`, '-sTCP:LISTEN', '-t'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore']
     })
@@ -177,7 +177,7 @@ async function stop({ force = false } = {}) {
       label: 'parada do servidor'
     });
   } catch {
-    if (force || true) {
+    if (force) {
       killPids(listListenPids(), 'SIGKILL');
       await new Promise((r) => setTimeout(r, 400));
     }

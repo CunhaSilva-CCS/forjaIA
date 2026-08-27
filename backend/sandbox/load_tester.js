@@ -78,7 +78,7 @@ module.exports = {
       avgLatency: latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0,
       successRate: totalRequests ? Math.round((successfulRequests / totalRequests) * 100) : 0,
       target: `${route.method} ${route.path}`,
-      chaosMode: 'injecao-falhas-cliente'
+      chaosMode: chaos.getMode()
     };
   }
 };

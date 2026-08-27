@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 process.chdir(path.join(__dirname, '..'));
 
@@ -79,7 +79,7 @@ try {
 if (provider === 'ollama') {
   const base = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
   try {
-    const res = execSync(`curl -sf --max-time 3 ${base}/api/tags`, { encoding: 'utf8' });
+    const res = execFileSync('curl', ['-sf', '--max-time', '3', `${base}/api/tags`], { encoding: 'utf8' });
     const data = JSON.parse(res);
     const n = Array.isArray(data.models) ? data.models.length : 0;
     if (!n) issues.push('Ollama online mas sem modelos — rode `ollama pull qwen2.5-coder:7b`.');

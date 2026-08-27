@@ -5,6 +5,8 @@ const config = require('./config');
 
 let db;
 
+const MAX_FILE_VERSIONS_PER_PATH = 25;
+
 function getDb() {
   if (!db) {
     fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
@@ -66,6 +68,8 @@ function migrate(database) {
       created_at TEXT NOT NULL,
       FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
     );
+    CREATE INDEX IF NOT EXISTS idx_run_file_versions_run_path
+      ON run_file_versions (run_id, path, version);
 
     CREATE TABLE IF NOT EXISTS preferences (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -362,11 +366,26 @@ const runs = {
       .all(runId);
   },
   saveFileVersion(runId, filePath, content, version) {
-    getDb()
+    const database = getDb();
+    database
       .prepare(
         `INSERT INTO run_file_versions (run_id, path, content, version, created_at) VALUES (?, ?, ?, ?, ?)`
       )
       .run(runId, filePath, content, version, now());
+    // Ciclos repetidos de cura/correção geram uma versão nova a cada tentativa; sem isso
+    // a tabela cresce sem limite para runs longas. Mantém só as N mais recentes por arquivo.
+    database
+      .prepare(
+        `DELETE FROM run_file_versions
+         WHERE run_id = ? AND path = ?
+           AND id NOT IN (
+             SELECT id FROM run_file_versions
+             WHERE run_id = ? AND path = ?
+             ORDER BY version DESC
+             LIMIT ?
+           )`
+      )
+      .run(runId, filePath, runId, filePath, MAX_FILE_VERSIONS_PER_PATH);
   },
   listFileVersions(runId, filePath) {
     return getDb()

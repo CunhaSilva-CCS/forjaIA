@@ -37,17 +37,37 @@ export function TokenGate({ onReady }: { onReady: (token: string) => void }) {
         <p style={{ marginBottom: 12, color: 'var(--ink-soft)', fontSize: 14 }}>
           Informe o <code>FORJA_API_TOKEN</code> do servidor (veja o terminal do backend ou o arquivo .env).
         </p>
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Token de acesso"
-          style={{ width: '100%', marginBottom: 12 }}
-        />
-        {error && <p style={{ color: 'var(--danger)', marginBottom: 12, fontSize: 13 }}>{error}</p>}
-        <button className="btn-primary" disabled={!token.trim() || loading} onClick={submit} style={{ width: '100%' }}>
-          {loading ? 'Validando…' : 'Entrar'}
-        </button>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <label htmlFor="api-token" className="sr-only">
+            Token de acesso
+          </label>
+          <input
+            id="api-token"
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="Token de acesso"
+            style={{ width: '100%', marginBottom: 12 }}
+          />
+          {error && (
+            <p role="alert" style={{ color: 'var(--danger)', marginBottom: 12, fontSize: 13 }}>
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={!token.trim() || loading}
+            style={{ width: '100%' }}
+          >
+            {loading ? 'Validando…' : 'Entrar'}
+          </button>
+        </form>
       </div>
     </div>
   );

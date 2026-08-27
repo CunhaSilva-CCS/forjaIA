@@ -3,81 +3,26 @@ const fs = require('fs');
 const path = require('path');
 const Docker = require('dockerode');
 const config = require('../lib/config');
+const dockerBuild = require('../lib/dockerBuild');
 
-function readPackageJson(sandboxPath) {
-  const pkgPath = path.join(sandboxPath, 'package.json');
-  if (!fs.existsSync(pkgPath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
+const needsCompile = dockerBuild.needsCompile;
 
+/** Cadeia comum (dockerBuild) + fallbacks específicos de sandbox: src/index.ts (tsx) e um
+ * palpite final incondicional (node server.js), já que a sandbox sempre precisa de "algo"
+ * para subir — se estiver errado, o waitForHttp abaixo vai só dar timeout, não travar o fluxo. */
 function detectStartCommand(sandboxPath) {
-  const pkg = readPackageJson(sandboxPath);
-  if (pkg) {
-    if (pkg.scripts?.start) {
-      const parts = String(pkg.scripts.start).trim().split(/\s+/);
-      if (parts[0] === 'node' && parts[1]) return { cmd: 'node', args: parts.slice(1) };
-      return { cmd: 'npm', args: ['start'] };
-    }
-    if (pkg.main) return { cmd: 'node', args: [pkg.main] };
-  }
-  if (fs.existsSync(path.join(sandboxPath, 'src/server.js'))) {
-    return { cmd: 'node', args: ['src/server.js'] };
-  }
+  const found = dockerBuild.detectStartCommand(sandboxPath);
+  if (found) return found;
   if (fs.existsSync(path.join(sandboxPath, 'src/index.ts'))) {
     return { cmd: 'npx', args: ['tsx', 'src/index.ts'] };
   }
   return { cmd: 'node', args: ['server.js'] };
 }
 
-function needsCompile(sandboxPath, start) {
-  const pkg = readPackageJson(sandboxPath) || {};
-  if (pkg.scripts?.build) return true;
-  if (fs.existsSync(path.join(sandboxPath, 'tsconfig.json'))) return true;
-  const entry = start?.args?.[0] || '';
-  if (String(entry).startsWith('dist/') || String(entry).endsWith('.ts')) return true;
-  if (String(pkg.main || '').startsWith('dist/')) return true;
-  return false;
-}
-
-function needsNativeBuild(sandboxPath) {
-  const pkgPath = path.join(sandboxPath, 'package.json');
-  if (!fs.existsSync(pkgPath)) return false;
-  return /better-sqlite3|sharp|bcrypt(?!js)|node-gyp/.test(fs.readFileSync(pkgPath, 'utf8'));
-}
-
+// Sempre gerar Dockerfile da forja: Dockerfiles do projeto costumam expor
+// outra porta (ex.: 5000/5100) e CMD errado — QA então vê "fetch failed".
 function buildDockerfile(sandboxPath, start) {
-  // Sempre gerar Dockerfile da forja: Dockerfiles do projeto costumam expor
-  // outra porta (ex.: 5000/5100) e CMD errado — QA então vê "fetch failed".
-  const cmdJson = JSON.stringify([start.cmd, ...start.args]);
-  const compile = needsCompile(sandboxPath, start);
-  const native = needsNativeBuild(sandboxPath);
-
-  const nativeDeps = native
-    ? 'RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \\\n'
-      + '  && rm -rf /var/lib/apt/lists/*\n'
-    : '';
-
-  // Projetos TS precisam de typescript/tsx (devDependencies) + npm run build
-  const install = compile ? 'RUN npm install' : 'RUN npm install --omit=dev';
-  const buildStep = compile
-    ? 'RUN npm run build || (test -f tsconfig.json && npx tsc)\n'
-    : '';
-
-  return `FROM node:20-slim
-WORKDIR /app
-${nativeDeps}COPY package.json package-lock.json* ./
-${install}
-COPY . .
-${buildStep}ENV PORT=3000
-ENV HOST=0.0.0.0
-ENV NODE_ENV=test
-EXPOSE 3000
-CMD ${cmdJson}
-`;
+  return dockerBuild.buildDockerfile(sandboxPath, start, { containerPort: 3000, nodeEnv: 'test' });
 }
 
 async function waitForHttp(baseUrl, { attempts = 20, delayMs = 1000, orchestrator, onTick } = {}) {

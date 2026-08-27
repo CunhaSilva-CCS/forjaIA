@@ -2,6 +2,9 @@ import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { connectAgentSocket } from '../services/ws';
+import { deriveAgentStates, idleAgents } from '../utils/deriveAgentStates';
+import { useFolderBrowser } from './useFolderBrowser';
+import { useServiceControl } from './useServiceControl';
 import type {
   ADR,
   AgentName,
@@ -16,6 +19,9 @@ import type {
   Project,
   RunSummary,
   SecurityIssue,
+  Task,
+  TeamBoard,
+  TeamInfo,
   TestItem,
   TokenStats,
   WorkspaceTab,
@@ -45,19 +51,6 @@ const STAGE_BUTTON: Record<string, string> = {
   prodReady: 'Aprovar Checklist de Produção',
   report: 'Aprovar Relatório PDF'
 };
-
-const idleAgents = (): Record<AgentName, AgentState> => ({
-  architect: 'idle',
-  coder: 'idle',
-  qa: 'idle',
-  security: 'idle',
-  debugger: 'idle',
-  healer: 'idle',
-  devops: 'idle',
-  human: 'idle',
-  userFix: 'idle',
-  reporter: 'idle'
-});
 
 export function useForjaApp() {
   const [toast, setToast] = useState<string | null>(null);
@@ -105,15 +98,6 @@ export function useForjaApp() {
   const [styleRules, setStyleRules] = useState<string[]>([]);
   const [newRule, setNewRule] = useState('');
   const [targetPath, setTargetPath] = useState('deployed');
-  const [showFolderBrowser, setShowFolderBrowser] = useState(false);
-  const [currentBrowserPath, setCurrentBrowserPath] = useState('.');
-  const [parentBrowserPath, setParentBrowserPath] = useState<string | null>(null);
-  const [browserDirs, setBrowserDirs] = useState<{ name: string; path: string }[]>([]);
-  const [browserError, setBrowserError] = useState<string | null>(null);
-  const [browserExists, setBrowserExists] = useState(true);
-  const [browserListingPath, setBrowserListingPath] = useState('.');
-  const [newFolderName, setNewFolderName] = useState('');
-  const [browserLoading, setBrowserLoading] = useState(false);
   const [tokenStats, setTokenStats] = useState<TokenStats>(emptyTokenStats());
   const [tokenQuota] = useState(500000);
   const [wsConnected, setWsConnected] = useState(false);
@@ -133,27 +117,18 @@ export function useForjaApp() {
   const [teamMe, setTeamMe] = useState<{ id: string; name: string; role: string; isAdmin?: boolean } | null>(
     null
   );
-  const [teamBoard, setTeamBoard] = useState<{ queued: any[]; awaiting: any[]; recent: any[] }>({
+  const [teamBoard, setTeamBoard] = useState<TeamBoard>({
     queued: [],
     awaiting: [],
     recent: []
   });
-  const [teamInfo, setTeamInfo] = useState<any>(null);
-  const [serviceStatus, setServiceStatus] = useState<{
-    online: boolean;
-    host: string;
-    port: number;
-    pids: number[];
-    watch: { enabled: boolean; pid: number | null };
-    control?: { watchRunning: boolean; mode: string };
-  } | null>(null);
-  const [serviceBusy, setServiceBusy] = useState(false);
+  const [teamInfo, setTeamInfo] = useState<TeamInfo | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const didAutoSelectProject = useRef(false);
   const didApplyDefaultProvider = useRef(false);
   const selectedFilePathRef = useRef<string | null>(null);
-  const handleWsMessageRef = useRef<(event: string, data: any) => void>(() => undefined);
+  const handleWsMessageRef = useRef<(event: string, data: unknown) => void>(() => undefined);
 
   useEffect(() => {
     selectedFilePathRef.current = selectedFilePath;
@@ -164,103 +139,11 @@ export function useForjaApp() {
     window.setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const folderBrowser = useFolderBrowser(targetPath, showToast);
+
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
-
-  const deriveAgentStates = useCallback((task: any): Record<AgentName, AgentState> => {
-    const next = idleAgents();
-    if (!task) return next;
-    const mode = task.config?.mode === 'validate' ? 'validate' : 'forge';
-    const status = String(task.status || '');
-    const pending = task.pendingNextStage || task.config?.pendingNextStage || null;
-    const order: AgentName[] =
-      mode === 'validate'
-        ? ['qa', 'security', 'debugger', 'healer', 'devops', 'human', 'reporter']
-        : ['architect', 'coder', 'qa', 'security', 'debugger', 'healer', 'devops', 'human', 'reporter'];
-
-    if (mode === 'validate') {
-      next.architect = 'skipped';
-      next.coder = 'skipped';
-    }
-
-    const stageToAgent: Record<string, AgentName> = {
-      planning: 'architect',
-      coding: 'coder',
-      coder: 'coder',
-      qa: 'qa',
-      security: 'security',
-      debugger: 'debugger',
-      healer: 'healer',
-      devops: 'devops',
-      deploy: 'devops',
-      human: 'human',
-      userFix: 'userFix',
-      prodReady: 'devops',
-      report: 'reporter',
-      reporter: 'reporter'
-    };
-
-    if (status === 'awaiting_approval' && pending) {
-      if (pending === 'userFix') {
-        for (const a of order) {
-          if (a === 'human' && task.humanReport) {
-            next.human = task.humanReport.passed === false ? 'failed' : 'success';
-          } else if (['architect', 'coder', 'qa', 'security', 'debugger', 'healer', 'devops', 'human'].includes(a)) {
-            // leave idle unless we have evidence below
-          }
-        }
-        next.userFix = 'active';
-      } else {
-        const idx = order.indexOf(stageToAgent[pending] || (pending as AgentName));
-        for (let i = 0; i < order.length; i += 1) {
-          if (i < idx) next[order[i]] = 'success';
-        }
-        if (pending === 'report' || pending === 'reporter' || pending === 'prodReady') {
-          next.userFix = 'skipped';
-        }
-      }
-      if (mode === 'validate' && (pending === 'qa' || !pending)) {
-        // still at first quality gate after load
-      }
-    } else if (status === 'completed') {
-      for (const a of order) next[a] = 'success';
-      if (mode === 'validate') {
-        next.architect = 'skipped';
-        next.coder = 'skipped';
-      }
-      next.userFix = task.config?.lastUserReport ? 'success' : 'skipped';
-    } else if (stageToAgent[status]) {
-      const active = stageToAgent[status];
-      const idx = order.indexOf(active);
-      if (status === 'userFix') {
-        next.userFix = 'active';
-      } else {
-        for (let i = 0; i < order.length; i += 1) {
-          if (i < idx) next[order[i]] = 'success';
-          if (i === idx) next[order[i]] = 'active';
-        }
-      }
-    }
-
-    if (Array.isArray(task.tests) && task.tests.length) {
-      next.qa = task.tests.every((t: TestItem) => t.passed) ? 'success' : 'failed';
-    }
-    if (Array.isArray(task.securityIssues) && task.securityIssues.length) {
-      next.security = 'failed';
-    } else if (
-      status === 'awaiting_approval' &&
-      pending &&
-      ['debugger', 'healer', 'devops', 'deploy', 'human', 'userFix', 'prodReady', 'report'].includes(pending)
-    ) {
-      if (next.security === 'idle') next.security = 'success';
-    }
-    if (task.deployUrl) next.devops = next.devops === 'idle' || next.devops === 'active' ? 'success' : next.devops;
-    if (task.humanReport) {
-      next.human = task.humanReport.passed ? 'success' : 'failed';
-    }
-    return next;
-  }, []);
 
   const refreshMeta = useCallback(async () => {
     try {
@@ -351,10 +234,10 @@ export function useForjaApp() {
     }
   }, [ollamaModel, showToast]);
 
-  const applyTask = useCallback((task: any) => {
+  const applyTask = useCallback((task: Task | null | undefined) => {
     if (!task) return;
     setCurrentRunId(task.id || null);
-    setTaskStatus(task.status);
+    setTaskStatus(task.status ?? null);
     setPendingNextStage(task.pendingNextStage || task.config?.pendingNextStage || null);
     setApprovalMessage(task.approvalMessage || null);
     setFiles(task.files || []);
@@ -378,12 +261,12 @@ export function useForjaApp() {
       if (match) setSelectedProjectId(match.id);
     }
     if (task.config?.llmProvider) {
-      const p = task.config.llmProvider as 'gemini' | 'claude' | 'openai' | 'ollama';
+      const p = task.config.llmProvider;
       setLlmProvider(p);
       setUseOllama(p === 'ollama' || Boolean(task.config.useOllama));
     }
     if (task.tokenStats) setTokenStats({ ...emptyTokenStats(), ...task.tokenStats });
-    const paths = (task.files || []).map((f: FileData) => f.path);
+    const paths = (task.files || []).map((f) => f.path);
     const current = selectedFilePathRef.current;
     if (paths.length) {
       if (!current || !paths.includes(current)) {
@@ -395,20 +278,21 @@ export function useForjaApp() {
   }, [projects]);
 
   const handleWsMessage = useCallback(
-    (event: string, data: any) => {
+    (event: string, data: unknown) => {
       switch (event) {
-        case 'sync-state':
-          setIsExecuting(data.isExecuting);
-          applyTask(data.task);
-          if (data.task) {
-            setAgentStates(deriveAgentStates(data.task));
+        case 'sync-state': {
+          const payload = data as { isExecuting: boolean; task: Task | null };
+          setIsExecuting(payload.isExecuting);
+          applyTask(payload.task);
+          if (payload.task) {
+            setAgentStates(deriveAgentStates(payload.task));
             setActiveAgent(null);
-            if (data.task.id) {
+            if (payload.task.id) {
               api.runs
-                .get(data.task.id)
+                .get(payload.task.id)
                 .then((run) => {
                   setLogs(
-                    (run.events || []).map((e: any) => ({
+                    (run.events || []).map((e) => ({
                       agent: e.agent || 'system',
                       message: e.message,
                       type: e.type,
@@ -420,18 +304,20 @@ export function useForjaApp() {
             }
           }
           break;
+        }
         case 'task-started': {
+          const payload = data as Task;
           setIsExecuting(true);
-          setTaskStatus(data.status || 'planning');
-          setCurrentRunId(data.id || null);
-          setPipelineMode(data.config?.mode === 'validate' ? 'validate' : 'forge');
+          setTaskStatus(payload.status || 'planning');
+          setCurrentRunId(payload.id || null);
+          setPipelineMode(payload.config?.mode === 'validate' ? 'validate' : 'forge');
           setLogs([]);
           setPendingNextStage(null);
           setApprovalMessage(null);
           setSelectedFilePath(null);
           setActiveAgent(null);
-          const seededFiles = Array.isArray(data.files) ? data.files : [];
-          const seededAdrs = Array.isArray(data.adrs) ? data.adrs : [];
+          const seededFiles = Array.isArray(payload.files) ? payload.files : [];
+          const seededAdrs = Array.isArray(payload.adrs) ? payload.adrs : [];
           setFiles(seededFiles);
           setAdrs(seededAdrs);
           setTests([]);
@@ -442,7 +328,7 @@ export function useForjaApp() {
           setDeployUrl(null);
           setTokenStats(emptyTokenStats());
           setAgentStates(
-            data.config?.mode === 'validate'
+            payload.config?.mode === 'validate'
               ? { ...idleAgents(), architect: 'skipped', coder: 'skipped' }
               : idleAgents()
           );
@@ -450,146 +336,119 @@ export function useForjaApp() {
           if (seededFiles[0]?.path) setSelectedFilePath(seededFiles[0].path);
           break;
         }
-        case 'tokens-updated':
+        case 'tokens-updated': {
+          const payload = data as TokenStats;
           setTokenStats({
             ...emptyTokenStats(),
-            ...data,
-            last: data?.last ?? null
+            ...payload,
+            last: payload?.last ?? null
           });
           break;
-        case 'agent-active':
-          setActiveAgent(data.agent);
-          setAgentStates((prev) => ({ ...prev, [data.agent]: 'active' }));
+        }
+        case 'agent-active': {
+          const payload = data as { agent: AgentName };
+          setActiveAgent(payload.agent);
+          setAgentStates((prev) => ({ ...prev, [payload.agent]: 'active' }));
           break;
-        case 'agent-finished':
+        }
+        case 'agent-finished': {
+          const payload = data as { agent: AgentName; status: AgentState; data?: unknown };
           setActiveAgent(null);
-          setAgentStates((prev) => ({ ...prev, [data.agent]: data.status }));
-          if (data.agent === 'architect' && data.status !== 'skipped' && data.data) {
-            setAdrs(data.data.adrs || []);
-            setFiles((data.data.files || []).map((f: any) => ({ name: f.name, path: f.path, content: '' })));
-            if (data.data.files?.[0]) setSelectedFilePath(data.data.files[0].path);
+          setAgentStates((prev) => ({ ...prev, [payload.agent]: payload.status }));
+          if (payload.agent === 'architect' && payload.status !== 'skipped' && payload.data) {
+            const plan = payload.data as { adrs?: ADR[]; files?: Array<{ name: string; path: string }> };
+            setAdrs(plan.adrs || []);
+            setFiles((plan.files || []).map((f) => ({ name: f.name, path: f.path, content: '' })));
+            if (plan.files?.[0]) setSelectedFilePath(plan.files[0].path);
           }
-          if (data.agent === 'coder' && data.status !== 'skipped' && data.data) {
-            setFiles(data.data.files || []);
+          if (payload.agent === 'coder' && payload.status !== 'skipped' && payload.data) {
+            const codeOutput = payload.data as { files?: FileData[] };
+            setFiles(codeOutput.files || []);
           }
-          if (data.agent === 'healer' && data.status === 'success' && Array.isArray(data.data)) {
-            setFiles(data.data);
+          if (payload.agent === 'healer' && payload.status === 'success' && Array.isArray(payload.data)) {
+            setFiles(payload.data as FileData[]);
           }
-          if (data.agent === 'userFix' && data.status === 'success' && Array.isArray(data.data)) {
-            setFiles(data.data);
+          if (payload.agent === 'userFix' && payload.status === 'success' && Array.isArray(payload.data)) {
+            setFiles(payload.data as FileData[]);
           }
-          if (data.agent === 'qa' && data.data) setTests(data.data.tests || []);
-          if (data.agent === 'security' && data.data) setSecurityIssues(data.data.issues || []);
-          if (data.agent === 'debugger' && data.data && data.status !== 'skipped') {
-            setDiagnosis(data.data);
+          if (payload.agent === 'qa' && payload.data) {
+            setTests((payload.data as { tests?: TestItem[] }).tests || []);
+          }
+          if (payload.agent === 'security' && payload.data) {
+            setSecurityIssues((payload.data as { issues?: SecurityIssue[] }).issues || []);
+          }
+          if (payload.agent === 'debugger' && payload.data && payload.status !== 'skipped') {
+            setDiagnosis(payload.data as Diagnosis);
             setCurrentTab('diagnosis');
           }
           break;
+        }
         case 'diagnosis-updated':
-          setDiagnosis(data);
+          setDiagnosis(data as Diagnosis);
           break;
         case 'agent-log':
-          setLogs((prev) => [...prev, data]);
+          setLogs((prev) => [...prev, data as LogLine]);
           break;
-        case 'task-awaiting-approval':
+        case 'task-awaiting-approval': {
+          const payload = data as Task;
           setIsExecuting(false);
           setTaskStatus('awaiting_approval');
-          setPendingNextStage(data.pendingNextStage || null);
-          setApprovalMessage(data.approvalMessage || null);
+          setPendingNextStage(payload.pendingNextStage || null);
+          setApprovalMessage(payload.approvalMessage || null);
           setActiveAgent(null);
-          applyTask(data);
+          applyTask(payload);
           setAgentStates((prev) => {
-            const derived = deriveAgentStates(data);
-            return { ...prev, ...derived, devops: data.deployUrl ? 'success' : prev.devops };
+            const derived = deriveAgentStates(payload);
+            return { ...prev, ...derived, devops: payload.deployUrl ? 'success' : prev.devops };
           });
           break;
-        case 'task-resumed':
+        }
+        case 'task-resumed': {
+          const payload = data as Task;
           setIsExecuting(true);
-          setTaskStatus(data.status);
+          setTaskStatus(payload.status ?? null);
           break;
+        }
         case 'chaos-injected':
-          setChaosEvents((prev) => [data, ...prev]);
+          setChaosEvents((prev) => [data as ChaosEvent, ...prev]);
           break;
         case 'metrics-updated':
-          setPerformanceMetrics(data);
+          setPerformanceMetrics(data as PerformanceMetrics);
           break;
-        case 'task-completed':
+        case 'task-completed': {
+          const payload = data as Task;
           setIsExecuting(false);
           setTaskStatus('completed');
           setActiveAgent(null);
           setPendingNextStage(null);
           setApprovalMessage(null);
-          applyTask(data);
-          setAgentStates(deriveAgentStates({ ...data, status: 'completed' }));
+          applyTask(payload);
+          setAgentStates(deriveAgentStates({ ...payload, status: 'completed' }));
           confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
           api.runs.list().then(setRuns).catch(() => undefined);
           break;
+        }
         case 'task-failed':
-        case 'task-cancelled':
+        case 'task-cancelled': {
+          const payload = data as Task;
           setIsExecuting(false);
-          setTaskStatus(data.status || (event === 'task-cancelled' ? 'cancelled' : 'failed'));
+          setTaskStatus(payload.status || (event === 'task-cancelled' ? 'cancelled' : 'failed'));
           setActiveAgent(null);
           setPendingNextStage(null);
           setApprovalMessage(null);
-          applyTask(data);
-          if (data.error) showToast(data.error);
+          applyTask(payload);
+          if (payload.error) showToast(payload.error);
           api.runs.list().then(setRuns).catch(() => undefined);
           break;
+        }
       }
     },
-    [applyTask, deriveAgentStates, showToast]
+    [applyTask, showToast]
   );
 
   useEffect(() => {
     handleWsMessageRef.current = handleWsMessage;
   }, [handleWsMessage]);
-
-  const browseTo = useCallback(async (pathString: string) => {
-    setBrowserLoading(true);
-    setBrowserError(null);
-    try {
-      const data = await api.browse(pathString || '.');
-      setCurrentBrowserPath(data.currentPath);
-      setParentBrowserPath(data.parentPath);
-      setBrowserDirs(data.directories || []);
-      setBrowserExists(data.exists !== false);
-      setBrowserListingPath(data.listingPath || data.currentPath);
-    } catch (err) {
-      setBrowserError(err instanceof Error ? err.message : 'Falha ao listar pasta');
-    } finally {
-      setBrowserLoading(false);
-    }
-  }, []);
-
-  const openFolderBrowser = useCallback(() => {
-    const start = targetPath?.trim() || '.';
-    setShowFolderBrowser(true);
-    setNewFolderName('');
-    void browseTo(start);
-  }, [browseTo, targetPath]);
-
-  const createBrowserFolder = useCallback(async () => {
-    const name = newFolderName.trim().replace(/^\/+|\/+$/g, '');
-    if (!name) return;
-    const base = currentBrowserPath === '.' ? '' : currentBrowserPath;
-    const full = base ? `${base}/${name}` : name;
-    setBrowserLoading(true);
-    setBrowserError(null);
-    try {
-      const data = await api.mkdir(full);
-      setNewFolderName('');
-      setCurrentBrowserPath(data.currentPath);
-      setParentBrowserPath(data.parentPath);
-      setBrowserDirs(data.directories || []);
-      setBrowserExists(true);
-      setBrowserListingPath(data.currentPath);
-      showToast(`Pasta criada: ${data.currentPath}`);
-    } catch (err) {
-      setBrowserError(err instanceof Error ? err.message : 'Falha ao criar pasta');
-    } finally {
-      setBrowserLoading(false);
-    }
-  }, [currentBrowserPath, newFolderName, showToast]);
 
   useEffect(() => {
     void refreshMeta();
@@ -652,44 +511,10 @@ export function useForjaApp() {
     }
   };
 
-  const refreshServiceStatus = useCallback(async () => {
-    try {
-      const st = await api.services.status();
-      setServiceStatus(st);
-    } catch {
-      setServiceStatus(null);
-    }
-  }, []);
-
-  const runServiceAction = useCallback(
-    async (action: 'start' | 'stop' | 'restart' | 'watch') => {
-      setServiceBusy(true);
-      try {
-        const res = await api.services.action(action);
-        showToast(res.message || `Ação ${action} enviada`);
-        if (action === 'restart' || action === 'stop') {
-          showToast('Aguarde o serviço voltar…');
-          setTimeout(() => {
-            void refreshServiceStatus();
-            void refreshMeta();
-          }, 5000);
-        } else {
-          await refreshServiceStatus();
-        }
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : `Falha em ${action}`);
-      } finally {
-        setServiceBusy(false);
-      }
-    },
-    [refreshMeta, refreshServiceStatus, showToast]
+  const { serviceStatus, serviceBusy, refreshServiceStatus, runServiceAction } = useServiceControl(
+    showToast,
+    refreshMeta
   );
-
-  useEffect(() => {
-    void refreshServiceStatus();
-    const id = window.setInterval(() => void refreshServiceStatus(), 15000);
-    return () => window.clearInterval(id);
-  }, [refreshServiceStatus]);
 
   const handleRun = async () => {
     if (isExecuting) return;
@@ -697,7 +522,7 @@ export function useForjaApp() {
     setPipelineMode('forge');
     setCurrentTab('terminal');
     try {
-      const res: any = await api.run(prompt, { ...runConfig(), mode: 'forge' });
+      const res = await api.run(prompt, { ...runConfig(), mode: 'forge' });
       if (res?.queued) {
         setIsExecuting(false);
         showToast(res.message || 'Run enfileirado');
@@ -728,7 +553,7 @@ export function useForjaApp() {
         projectId = ensured.id;
         setSelectedProjectId(ensured.id);
       }
-      const res: any = await api.validate(source, { ...runConfig(), mode: 'validate', projectId });
+      const res = await api.validate(source, { ...runConfig(), mode: 'validate', projectId });
       if (res?.queued) {
         setIsExecuting(false);
         showToast(res.message || 'Validação enfileirada');
@@ -806,11 +631,11 @@ export function useForjaApp() {
       setAdrs(run.adrs || []);
       setTests(run.tests || []);
       setSecurityIssues(run.securityIssues || []);
-      setDiagnosis((run as any).config?.lastDiagnosis || (run as any).diagnosis || null);
+      setDiagnosis(run.config?.lastDiagnosis || run.diagnosis || null);
       setPerformanceMetrics(run.performanceMetrics || null);
       setDeployUrl(run.deploy_url || null);
       setLogs(
-        (run.events || []).map((e: any) => ({
+        (run.events || []).map((e) => ({
           agent: e.agent || 'system',
           message: e.message,
           type: e.type,
@@ -936,21 +761,7 @@ export function useForjaApp() {
     setNewRule,
     targetPath,
     setTargetPath,
-    showFolderBrowser,
-    setShowFolderBrowser,
-    openFolderBrowser,
-    browseTo,
-    createBrowserFolder,
-    currentBrowserPath,
-    setCurrentBrowserPath,
-    parentBrowserPath,
-    browserDirs,
-    browserError,
-    browserExists,
-    browserListingPath,
-    browserLoading,
-    newFolderName,
-    setNewFolderName,
+    ...folderBrowser,
     tokenStats,
     tokenQuota,
     wsConnected,
@@ -983,3 +794,5 @@ export function useForjaApp() {
     refreshMeta
   };
 }
+
+export type AppState = ReturnType<typeof useForjaApp>;
