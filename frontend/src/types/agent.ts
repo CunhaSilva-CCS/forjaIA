@@ -215,7 +215,7 @@ export type AgentName =
   | 'human'
   | 'userFix'
   | 'reporter';
-export type LlmProvider = 'gemini' | 'claude' | 'openai' | 'ollama';
+export type LlmProvider = 'gemini' | 'claude' | 'openai' | 'ollama' | 'cursor';
 export type AgentState = 'idle' | 'active' | 'success' | 'failed' | 'skipped';
 export type PipelineMode = 'forge' | 'validate';
 export type DeployEnvironment = 'local' | 'staging';

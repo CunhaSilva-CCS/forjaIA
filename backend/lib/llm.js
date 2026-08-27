@@ -1,3 +1,7 @@
+const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const config = require('./config');
 
 function sleep(ms) {
@@ -279,6 +283,121 @@ async function callClaude({ system, user, apiKey, baseUrl, model, signal }) {
 }
 
 /**
+ * Roda o cursor-agent (CLI headless) num diretório temporário descartável — nunca no repo do
+ * ForjaIA nem no targetPath do projeto sendo forjado. Mesmo em --print, o CLI "has access to all
+ * tools, including write and shell" (texto do próprio --help); isolar o cwd garante que qualquer
+ * arquivo/comando que ele decida rodar não toque em nada real. Só o texto de stdout (`.result`)
+ * é usado, exatamente como a resposta de um provedor de completion comum.
+ */
+function runCursorAgentCli(args, { cwd, timeoutMs, signal }) {
+  return new Promise((resolve, reject) => {
+    const bin = config.cursorBin;
+    const env = { ...process.env, PATH: `${path.join(os.homedir(), '.local/bin')}:${process.env.PATH || ''}` };
+    const child = spawn(bin, args, { cwd, env });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+      fn(arg);
+    };
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(reject, new Error(`cursor-agent excedeu o timeout de ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    let onAbort;
+    if (signal) {
+      if (signal.aborted) {
+        child.kill('SIGKILL');
+        finish(reject, new Error('Abortado'));
+      } else {
+        onAbort = () => {
+          child.kill('SIGKILL');
+          finish(reject, new Error('Abortado'));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+
+    child.stdout.on('data', (d) => {
+      stdout += d;
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d;
+    });
+    child.on('error', (err) => {
+      finish(reject, new Error(`Falha ao executar ${bin}: ${err.message}`));
+    });
+    child.on('close', (code) => {
+      if (code !== 0) {
+        finish(reject, new Error(`cursor-agent saiu com código ${code}: ${stderr.trim() || stdout.trim()}`));
+        return;
+      }
+      finish(resolve, stdout);
+    });
+  });
+}
+
+async function callCursorAgent({ system, user, apiKey, model, signal }) {
+  const key = apiKey || config.cursorApiKey;
+  const resolvedModel = model || config.cursorModel;
+  const prompt = `${system}\n\n${user}\n\nReturn ONLY valid JSON.`;
+
+  const args = ['-p', prompt, '--output-format', 'json', '--trust', '--model', resolvedModel];
+  if (key) args.push('--api-key', key);
+
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-cursor-'));
+  try {
+    const stdout = await runCursorAgentCli(args, {
+      cwd: scratchDir,
+      timeoutMs: config.llmTimeoutMs,
+      signal
+    });
+
+    let envelope;
+    try {
+      envelope = JSON.parse(stdout);
+    } catch {
+      throw new Error('Resposta do cursor-agent não é um JSON válido');
+    }
+    if (envelope.is_error) {
+      throw new Error(envelope.result || 'cursor-agent retornou erro');
+    }
+
+    const parsed = extractJson(envelope.result);
+    const usage = envelope.usage || {};
+    const tokens = {
+      prompt: usage.inputTokens || 0,
+      completion: usage.outputTokens || 0,
+      total: (usage.inputTokens || 0) + (usage.outputTokens || 0)
+    };
+
+    return { data: parsed, tokens, provider: 'cursor', model: resolvedModel };
+  } finally {
+    fs.rm(scratchDir, { recursive: true, force: true }, () => {});
+  }
+}
+
+async function checkCursorAgent() {
+  try {
+    const stdout = await runCursorAgentCli(['status'], {
+      cwd: os.tmpdir(),
+      timeoutMs: 3000
+    });
+    return { online: /logged in/i.test(stdout), detail: stdout.trim() };
+  } catch (err) {
+    return { online: false, detail: err.message };
+  }
+}
+
+/**
  * Resolve JSON from Gemini, Claude, OpenAI-compatible ou Ollama.
  * Respeita o provedor escolhido; se falhar por crédito/auth, tenta fallbacks.
  */
@@ -297,6 +416,14 @@ async function callByProvider(provider, { system, user, runConfig, signal }) {
       system,
       user,
       model: runConfig.ollamaModel || config.ollamaDefaultModel,
+      signal
+    });
+  }
+  if (provider === 'cursor') {
+    return callCursorAgent({
+      system,
+      user,
+      model: runConfig.cursorModel || config.cursorModel,
       signal
     });
   }
@@ -420,7 +547,8 @@ function providerStatus() {
       model: config.openaiModel,
       baseUrl: config.openaiBaseUrl
     },
-    ollama: { baseUrl: config.ollamaBaseUrl, model: config.ollamaDefaultModel }
+    ollama: { baseUrl: config.ollamaBaseUrl, model: config.ollamaDefaultModel },
+    cursor: { configured: Boolean(config.cursorApiKey), model: config.cursorModel }
   };
 }
 
@@ -518,6 +646,28 @@ async function probeLlm(providerInput) {
     };
   }
 
+  if (provider === 'cursor') {
+    if (config.cursorApiKey) {
+      return {
+        provider: 'cursor',
+        model: config.cursorModel,
+        ok: true,
+        configured: true,
+        latencyMs: Date.now() - started,
+        detail: 'CURSOR_API_KEY configurada no servidor'
+      };
+    }
+    const status = await checkCursorAgent();
+    return {
+      provider: 'cursor',
+      model: config.cursorModel,
+      ok: status.online,
+      configured: status.online,
+      latencyMs: Date.now() - started,
+      detail: status.online ? status.detail : `Sem CURSOR_API_KEY e ${status.detail}. Rode 'cursor-agent login'.`
+    };
+  }
+
   return {
     provider,
     model: null,
@@ -534,7 +684,9 @@ module.exports = {
   callClaude,
   callOpenAICompatible,
   callOllama,
+  callCursorAgent,
   checkOllama,
+  checkCursorAgent,
   extractJson,
   resolveProvider,
   resolveGeminiModel,

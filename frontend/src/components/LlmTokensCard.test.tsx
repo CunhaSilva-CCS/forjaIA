@@ -37,4 +37,10 @@ describe('LlmTokensCard', () => {
     expect(select).toBeDisabled();
     expect(screen.getByText('Fixo até o fim desta execução')).toBeInTheDocument();
   });
+
+  it('lista Cursor como opção de provedor e mostra o campo de modelo quando selecionado', () => {
+    render(<LlmTokensCard s={makeState({ llmProvider: 'cursor', cursorModel: 'auto', setCursorModel: () => {} })} />);
+    expect(screen.getByRole('option', { name: 'Cursor' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Modelo Cursor')).toHaveValue('auto');
+  });
 });

@@ -8,3 +8,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-004 — TypeScript strict mode e eliminação de `any`](004-typescript-strict-mode.md)
 - [ADR-005 — Endurecimento de segurança pontual (rate limit, tokens, purge)](005-security-hardening.md)
 - [ADR-006 — Watchdog exige falhas seguidas antes de reiniciar](006-watchdog-unhealthy-threshold.md)
+- [ADR-007 — Cursor Agent como provedor de LLM opt-in, isolado em cwd descartável](007-cursor-agent-provider.md)

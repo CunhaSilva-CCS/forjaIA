@@ -14,6 +14,7 @@ export function AppHeader({ s }: { s: AppState }) {
   const apiLabel = `API ${s.serviceStatus?.online ? 'online' : 'off'}${s.serviceStatus?.port ? ` :${s.serviceStatus.port}` : ''}`;
   const dockerLabel = `Docker ${s.dockerActive ? 'ok' : 'off'}`;
   const ollamaLabel = `Ollama ${s.ollamaOnline ? 'ok' : 'off'}`;
+  const cursorLabel = `Cursor ${s.cursorOnline ? 'ok' : 'off'}`;
   const wsLabel = `WebSocket ${s.wsConnected ? 'online' : 'offline'}`;
 
   return (
@@ -37,6 +38,7 @@ export function AppHeader({ s }: { s: AppState }) {
           <span className={`infra-dot ${s.serviceStatus?.online ? 'on' : ''}`} title={apiLabel} aria-label={apiLabel} />
           <span className={`infra-dot ${s.dockerActive ? 'on' : ''}`} title={dockerLabel} aria-label={dockerLabel} />
           <span className={`infra-dot ${s.ollamaOnline ? 'on' : ''}`} title={ollamaLabel} aria-label={ollamaLabel} />
+          <span className={`infra-dot ${s.cursorOnline ? 'on' : ''}`} title={cursorLabel} aria-label={cursorLabel} />
           <span className={`infra-dot ${s.wsConnected ? 'on' : ''}`} title={wsLabel} aria-label={wsLabel} />
         </div>
         <span

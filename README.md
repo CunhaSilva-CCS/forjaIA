@@ -62,7 +62,7 @@ npm run dev:stable
 |--------|------|
 | Plano de controle | Express + WebSocket em `127.0.0.1`, auth Bearer |
 | SQLite | Projetos, execuções, eventos, versões de arquivos, preferências |
-| Provedor LLM | Gemini ou Ollama com retries; mocks só se `FORJA_ALLOW_MOCKS=true` |
+| Provedor LLM | Gemini, Claude, OpenAI, Ollama ou Cursor Agent (CLI, opt-in) com retries; mocks só se `FORJA_ALLOW_MOCKS=true` |
 | Raiz do workspace | Navegação/deploy restritos a `FORJA_WORKSPACE_ROOT` |
 | Sandbox | Container Docker com limites de memória/CPU |
 
@@ -86,6 +86,7 @@ npm run test:frontend
 
 - Engenharia do caos: com sandbox Docker disponível, os faults são **reais** contra o container (`tc netem` para latência/perda de pacotes via container-sidecar, `container.update()` para reduzir a cota de CPU) — não simulação. Sem Docker (ou se a operação real falhar), cai automaticamente para injeção de falhas no cliente (documentado no campo `chaosMode` das métricas). Em nenhum dos dois casos há comprometimento da rede do host.
 - Segredos (Gemini) ficam só no servidor — nunca são enviados pela interface.
+- Provedor Cursor (opt-in): exige o [Cursor CLI](https://cursor.com) instalado e autenticado no servidor (`cursor-agent login`) ou `CURSOR_API_KEY` no `.env`. Nunca é escolhido automaticamente como fallback — só roda quando selecionado explicitamente no dropdown de provedor. Ver [ADR-007](docs/adr/007-cursor-agent-provider.md).
 
 ## Decisões arquiteturais
 

@@ -82,6 +82,7 @@ export function useForjaApp() {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [openaiModel, setOpenaiModel] = useState('gpt-4.1');
   const [claudeModel, setClaudeModel] = useState('claude-sonnet-4-20250514');
+  const [cursorModel, setCursorModel] = useState('auto');
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [hasOpenAIKey, setHasOpenAIKey] = useState(false);
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
@@ -97,6 +98,7 @@ export function useForjaApp() {
   const [llmProbeLoading, setLlmProbeLoading] = useState(false);
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [dockerActive, setDockerActive] = useState(false);
+  const [cursorOnline, setCursorOnline] = useState(false);
   const [styleRules, setStyleRules] = useState<string[]>([]);
   const [newRule, setNewRule] = useState('');
   const [targetPath, setTargetPath] = useState('deployed');
@@ -149,7 +151,7 @@ export function useForjaApp() {
 
   const refreshMeta = useCallback(async () => {
     try {
-      const [docker, ollama, prefs, workspace, projectList, runList, health, me, team, board] =
+      const [docker, ollama, prefs, workspace, projectList, runList, health, me, team, board, cursor] =
         await Promise.all([
           api.dockerStatus(),
           api.ollamaModels(),
@@ -160,10 +162,12 @@ export function useForjaApp() {
           api.health(),
           api.team.me().catch(() => null),
           api.team.list().catch(() => null),
-          api.team.board().catch(() => null)
+          api.team.board().catch(() => null),
+          api.llmStatus('cursor').catch(() => null)
         ]);
       setDockerActive(docker.active);
       setOllamaOnline(ollama.online);
+      setCursorOnline(Boolean(cursor?.ok));
       setOllamaModels(ollama.models);
       if (ollama.models.length && !ollama.models.includes(ollamaModel)) {
         setOllamaModel(ollama.models[0]);
@@ -500,6 +504,7 @@ export function useForjaApp() {
     openaiModel,
     claudeModel,
     geminiModel,
+    cursorModel,
     // Em run ativo, priorizar caminho do run (evita projeto stale na UI)
     targetPath: activeRunTargetPath || targetPath,
     projectId: selectedProjectId,
@@ -763,11 +768,14 @@ export function useForjaApp() {
     setOpenaiModel,
     claudeModel,
     setClaudeModel,
+    cursorModel,
+    setCursorModel,
     geminiModel,
     llmProbe,
     llmProbeLoading,
     refreshLlmProbe,
     ollamaOnline,
+    cursorOnline,
     hasGeminiKey,
     hasOpenAIKey,
     hasAnthropicKey,

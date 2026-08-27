@@ -10,6 +10,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     serviceStatus: null,
     dockerActive: false,
     ollamaOnline: false,
+    cursorOnline: false,
     wsConnected: false,
     llmProbe: null,
     llmProbeLoading: false,
@@ -29,6 +30,7 @@ describe('AppHeader', () => {
     render(<AppHeader s={makeState()} />);
     expect(screen.getByLabelText('Docker off')).toBeInTheDocument();
     expect(screen.getByLabelText('Ollama off')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cursor off')).toBeInTheDocument();
     expect(screen.getByLabelText('WebSocket offline')).toBeInTheDocument();
   });
 
@@ -39,6 +41,7 @@ describe('AppHeader', () => {
           serviceStatus: { online: true, host: '127.0.0.1', port: 3001, pids: [1], watch: { enabled: false, pid: null } },
           dockerActive: true,
           ollamaOnline: true,
+          cursorOnline: true,
           wsConnected: true
         })}
       />
@@ -46,6 +49,7 @@ describe('AppHeader', () => {
     expect(screen.getByLabelText('API online :3001')).toBeInTheDocument();
     expect(screen.getByLabelText('Docker ok')).toBeInTheDocument();
     expect(screen.getByLabelText('Ollama ok')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cursor ok')).toBeInTheDocument();
     expect(screen.getByLabelText('WebSocket online')).toBeInTheDocument();
   });
 

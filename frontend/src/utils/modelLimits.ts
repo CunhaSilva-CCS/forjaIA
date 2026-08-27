@@ -30,7 +30,10 @@ const PROVIDER_FALLBACK: Record<LlmProvider, { contextWindow: number; maxOutput:
   gemini: { contextWindow: 1_048_576, maxOutput: 65_536 },
   claude: { contextWindow: 200_000, maxOutput: 64_000 },
   openai: { contextWindow: 128_000, maxOutput: 16_384 },
-  ollama: { contextWindow: 32_768, maxOutput: 8192 }
+  ollama: { contextWindow: 32_768, maxOutput: 8192 },
+  // "auto"/modelo escolhido pelo próprio Cursor — sem um nome fixo pra casar no KNOWN,
+  // estimativa conservadora alinhada aos modelos grandes que ele costuma rotear.
+  cursor: { contextWindow: 200_000, maxOutput: 64_000 }
 };
 
 export function resolveModelLimits(

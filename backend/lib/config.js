@@ -57,6 +57,11 @@ const config = {
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
   ollamaDefaultModel: process.env.OLLAMA_DEFAULT_MODEL || 'qwen2.5-coder:7b',
 
+  // Cursor Agent (CLI headless) — opcional, exige `cursor-agent login` prévio ou CURSOR_API_KEY
+  cursorApiKey: process.env.CURSOR_API_KEY || '',
+  cursorModel: process.env.CURSOR_MODEL || 'auto',
+  cursorBin: process.env.CURSOR_AGENT_BIN || 'cursor-agent',
+
   requireDocker: parseBool(process.env.FORJA_REQUIRE_DOCKER, true),
   allowMocks: parseBool(process.env.FORJA_ALLOW_MOCKS, false),
   allowPublicBind: parseBool(process.env.FORJA_ALLOW_PUBLIC_BIND, false),

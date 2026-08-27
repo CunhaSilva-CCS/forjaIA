@@ -31,7 +31,7 @@ export function LlmTokensCard({ s }: { s: AppState }) {
           disabled={s.providerLocked}
           title={s.providerLocked ? 'Fixo até o fim desta execução — o servidor ignora trocas em runs em andamento' : undefined}
           onChange={(e) => {
-            const v = e.target.value as 'gemini' | 'claude' | 'openai' | 'ollama';
+            const v = e.target.value as 'gemini' | 'claude' | 'openai' | 'ollama' | 'cursor';
             s.setLlmProvider(v);
             s.setUseOllama(v === 'ollama');
           }}
@@ -40,6 +40,7 @@ export function LlmTokensCard({ s }: { s: AppState }) {
           <option value="claude">Claude</option>
           <option value="openai">OpenAI</option>
           <option value="ollama">Ollama</option>
+          <option value="cursor">Cursor</option>
         </select>
         {s.providerLocked && <p className="field-hint">Fixo até o fim desta execução</p>}
       </div>
@@ -72,6 +73,15 @@ export function LlmTokensCard({ s }: { s: AppState }) {
           onChange={(e) => s.setClaudeModel(e.target.value)}
           placeholder="claude-sonnet-4-20250514"
           aria-label="Modelo Claude"
+          style={{ width: '100%', marginBottom: 8 }}
+        />
+      )}
+      {s.llmProvider === 'cursor' && (
+        <input
+          value={s.cursorModel}
+          onChange={(e) => s.setCursorModel(e.target.value)}
+          placeholder="auto"
+          aria-label="Modelo Cursor"
           style={{ width: '100%', marginBottom: 8 }}
         />
       )}

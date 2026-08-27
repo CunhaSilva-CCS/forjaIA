@@ -2,12 +2,13 @@ const { z } = require('zod');
 
 const runConfigSchema = z.object({
   useOllama: z.boolean().optional().default(false),
-  llmProvider: z.enum(['gemini', 'claude', 'openai', 'ollama']).optional(),
+  llmProvider: z.enum(['gemini', 'claude', 'openai', 'ollama', 'cursor']).optional(),
   ollamaModel: z.string().min(1).optional(),
   geminiModel: z.string().min(1).optional(),
   claudeModel: z.string().min(1).optional(),
   anthropicModel: z.string().min(1).optional(),
   openaiModel: z.string().min(1).optional(),
+  cursorModel: z.string().min(1).optional(),
   openaiBaseUrl: z.string().url().optional(),
   anthropicBaseUrl: z.string().url().optional(),
   projectId: z.string().optional().nullable(),

@@ -11,3 +11,4 @@ dist/
 frontend/dist/
 backend/data/.api-token
 .claude/*.lock
+.playwright-mcp/
