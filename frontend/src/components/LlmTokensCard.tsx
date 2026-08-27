@@ -28,6 +28,8 @@ export function LlmTokensCard({ s }: { s: AppState }) {
         <select
           id="llm-provider"
           value={s.llmProvider}
+          disabled={s.providerLocked}
+          title={s.providerLocked ? 'Fixo até o fim desta execução — o servidor ignora trocas em runs em andamento' : undefined}
           onChange={(e) => {
             const v = e.target.value as 'gemini' | 'claude' | 'openai' | 'ollama';
             s.setLlmProvider(v);
@@ -39,6 +41,7 @@ export function LlmTokensCard({ s }: { s: AppState }) {
           <option value="openai">OpenAI</option>
           <option value="ollama">Ollama</option>
         </select>
+        {s.providerLocked && <p className="field-hint">Fixo até o fim desta execução</p>}
       </div>
       {s.llmProvider === 'ollama' && (
         <select

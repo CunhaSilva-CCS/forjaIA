@@ -250,6 +250,10 @@ class Orchestrator extends EventEmitter {
       pendingNextStage: nextStage,
       healingAttempts: this.healingAttempts
     };
+    // currentTask.config é o que GET /api/agent/status devolve direto (sem passar
+    // por savedConfig); sem este sync, healingAttempts fica correto no WS/DB mas
+    // some depois de um reload de página ou reconexão.
+    this.currentTask.config = this.savedConfig;
     this.persistTask({ status: 'awaiting_approval' });
     runs.update(this.currentTask.id, {
       plan: this.savedPlan,

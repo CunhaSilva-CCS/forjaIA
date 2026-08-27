@@ -38,6 +38,7 @@ const emptyTokenStats = (): TokenStats => ({
   peakTotal: 0,
   last: null
 });
+const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const STAGE_BUTTON: Record<string, string> = {
   coder: 'Aprovar e Codificar',
   qa: 'Aprovar e Executar QA',
@@ -73,6 +74,7 @@ export function useForjaApp() {
   const [currentTab, setCurrentTab] = useState<WorkspaceTab>('terminal');
   const [taskStatus, setTaskStatus] = useState<string | null>(null);
   const [pendingNextStage, setPendingNextStage] = useState<string | null>(null);
+  const [healingAttempts, setHealingAttempts] = useState(0);
   const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
   const [llmProvider, setLlmProvider] = useState<LlmProvider>('gemini');
   const [useOllama, setUseOllama] = useState(false);
@@ -240,6 +242,7 @@ export function useForjaApp() {
     setTaskStatus(task.status ?? null);
     setPendingNextStage(task.pendingNextStage || task.config?.pendingNextStage || null);
     setApprovalMessage(task.approvalMessage || null);
+    setHealingAttempts(task.config?.healingAttempts || 0);
     setFiles(task.files || []);
     setAdrs(task.adrs || []);
     setTests(task.tests || []);
@@ -256,7 +259,11 @@ export function useForjaApp() {
         : task.config?.targetPath || task.config?.sourcePath;
     if (tp) {
       setTargetPath(tp);
-      setActiveRunTargetPath(tp);
+      // Só trava o destino enquanto a run ainda está em andamento — uma task terminal
+      // (completed/failed/cancelled) sincronizada via sync-state (ex: após reload da página)
+      // não deve prender o campo Destino, senão a PRÓXIMA run herda o caminho da anterior.
+      const isTerminal = TERMINAL_TASK_STATUSES.has(task.status || '');
+      setActiveRunTargetPath(isTerminal ? null : tp);
       const match = projects.find((p) => p.path === tp);
       if (match) setSelectedProjectId(match.id);
     }
@@ -314,6 +321,7 @@ export function useForjaApp() {
           setLogs([]);
           setPendingNextStage(null);
           setApprovalMessage(null);
+          setHealingAttempts(0);
           setSelectedFilePath(null);
           setActiveAgent(null);
           const seededFiles = Array.isArray(payload.files) ? payload.files : [];
@@ -634,6 +642,7 @@ export function useForjaApp() {
       setDiagnosis(run.config?.lastDiagnosis || run.diagnosis || null);
       setPerformanceMetrics(run.performanceMetrics || null);
       setDeployUrl(run.deploy_url || null);
+      setHealingAttempts(run.config?.healingAttempts || 0);
       setLogs(
         (run.events || []).map((e) => ({
           agent: e.agent || 'system',
@@ -698,6 +707,12 @@ export function useForjaApp() {
     }
   };
 
+  // O backend trava o provedor de LLM assim que uma task existe e não terminou
+  // (ver orchestrator.js — "Provedor X da UI substituído pelo default do servidor").
+  // Refletir isso no próprio seletor evita que o usuário troque achando que vai
+  // valer e só descubra pelo log, no meio da run, que foi ignorado.
+  const providerLocked = Boolean(taskStatus) && !TERMINAL_TASK_STATUSES.has(taskStatus || '');
+
   return {
     toast,
     showToast,
@@ -707,6 +722,8 @@ export function useForjaApp() {
     activeAgent,
     agentStates,
     logs,
+    healingAttempts,
+    providerLocked,
     files,
     selectedFilePath,
     setSelectedFilePath,

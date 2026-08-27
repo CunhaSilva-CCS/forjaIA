@@ -103,6 +103,7 @@ export interface TaskConfig {
   pendingNextStage?: string;
   targetPath?: string;
   sourcePath?: string;
+  healingAttempts?: number;
   llmProvider?: LlmProvider;
   useOllama?: boolean;
   lastDiagnosis?: Diagnosis;
@@ -224,6 +225,7 @@ export type WorkspaceTab =
   | 'security'
   | 'diagnosis'
   | 'metrics'
+  | 'tokens'
   | 'adrs'
   | 'history'
   | 'projects'
