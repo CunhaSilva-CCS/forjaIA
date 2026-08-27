@@ -1,5 +1,7 @@
 # ForjaIA
 
+![CI](https://github.com/CunhaSilva-CCS/forjaIA/actions/workflows/ci.yml/badge.svg)
+
 Forja local self-hosted de software: pipeline multiagente (Arquiteto → aprovação → Codificador → QA/Segurança/Curador → sandbox Docker → deploy) com execuções persistentes, autenticação e isolamento de workspace.
 
 ## Requisitos
@@ -84,4 +86,7 @@ npm run test:frontend
 
 - Engenharia do caos: com sandbox Docker disponível, os faults são **reais** contra o container (`tc netem` para latência/perda de pacotes via container-sidecar, `container.update()` para reduzir a cota de CPU) — não simulação. Sem Docker (ou se a operação real falhar), cai automaticamente para injeção de falhas no cliente (documentado no campo `chaosMode` das métricas). Em nenhum dos dois casos há comprometimento da rede do host.
 - Segredos (Gemini) ficam só no servidor — nunca são enviados pela interface.
-# forjaIA
+
+## Decisões arquiteturais
+
+Ver [docs/adr/](docs/adr/) para o raciocínio por trás de mudanças estruturais não óbvias no diff.
