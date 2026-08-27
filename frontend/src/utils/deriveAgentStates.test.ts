@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveAgentStates, idleAgents } from './deriveAgentStates';
+import { deriveAgentStates, deriveStageDurations, idleAgents } from './deriveAgentStates';
 
 describe('deriveAgentStates', () => {
   it('retorna todos idle quando não há task', () => {
@@ -131,5 +131,47 @@ describe('deriveAgentStates', () => {
       humanReport: { passed: false }
     });
     expect(states.human).toBe('failed');
+  });
+});
+
+describe('deriveStageDurations', () => {
+  it('retorna objeto vazio sem logs', () => {
+    expect(deriveStageDurations([])).toEqual({});
+  });
+
+  it('calcula a diferença entre a primeira e a última linha de um agente', () => {
+    const durations = deriveStageDurations([
+      { agent: 'qa', message: 'início', type: 'info', timestamp: '2026-01-01T00:00:00.000Z' },
+      { agent: 'qa', message: 'meio', type: 'info', timestamp: '2026-01-01T00:00:05.000Z' },
+      { agent: 'qa', message: 'fim', type: 'success', timestamp: '2026-01-01T00:00:41.000Z' }
+    ]);
+    expect(durations.qa).toBe(41_000);
+  });
+
+  it('mantém etapas separadas mesmo intercaladas no log', () => {
+    const durations = deriveStageDurations([
+      { agent: 'qa', message: 'a', type: 'info', timestamp: '2026-01-01T00:00:00.000Z' },
+      { agent: 'devops', message: 'b', type: 'info', timestamp: '2026-01-01T00:00:02.000Z' },
+      { agent: 'qa', message: 'c', type: 'info', timestamp: '2026-01-01T00:00:10.000Z' },
+      { agent: 'devops', message: 'd', type: 'info', timestamp: '2026-01-01T00:00:12.000Z' }
+    ]);
+    expect(durations.qa).toBe(10_000);
+    expect(durations.devops).toBe(10_000);
+  });
+
+  it('ignora tags desconhecidas (ex: orchestrator) e timestamps inválidos', () => {
+    const durations = deriveStageDurations([
+      { agent: 'orchestrator', message: 'x', type: 'info', timestamp: '2026-01-01T00:00:00.000Z' },
+      { agent: 'qa', message: 'y', type: 'info', timestamp: 'não-é-uma-data' }
+    ]);
+    expect(Object.prototype.hasOwnProperty.call(durations, 'orchestrator')).toBe(false);
+    expect(durations.qa).toBeUndefined();
+  });
+
+  it('uma única linha de um agente produz duração 0, não undefined', () => {
+    const durations = deriveStageDurations([
+      { agent: 'security', message: 'único evento', type: 'info', timestamp: '2026-01-01T00:00:00.000Z' }
+    ]);
+    expect(durations.security).toBe(0);
   });
 });

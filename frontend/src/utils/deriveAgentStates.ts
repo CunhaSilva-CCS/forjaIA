@@ -1,4 +1,4 @@
-import type { AgentName, AgentState, Task } from '../types/agent';
+import type { AgentName, AgentState, LogLine, Task } from '../types/agent';
 
 export const idleAgents = (): Record<AgentName, AgentState> => ({
   architect: 'idle',
@@ -110,4 +110,33 @@ export function deriveAgentStates(task: Task | null | undefined): Record<AgentNa
     next.human = task.humanReport.passed ? 'success' : 'failed';
   }
   return next;
+}
+
+/**
+ * Estima o tempo gasto em cada etapa a partir do próprio log da run: primeira
+ * e última linha marcadas com a tag daquele agente. É uma aproximação (o log
+ * não carrega start/end por etapa vindos do backend), mas dá ao usuário uma
+ * noção de "isso travou" sem precisar mudar o schema de Task.
+ */
+export function deriveStageDurations(logs: LogLine[]): Partial<Record<AgentName, number>> {
+  const knownAgents = idleAgents();
+  const firstTs: Partial<Record<AgentName, number>> = {};
+  const lastTs: Partial<Record<AgentName, number>> = {};
+  for (const line of logs) {
+    const agent = line.agent as AgentName;
+    if (!(agent in knownAgents)) continue;
+    const t = Date.parse(line.timestamp);
+    if (!Number.isFinite(t)) continue;
+    if (firstTs[agent] === undefined) firstTs[agent] = t;
+    lastTs[agent] = t;
+  }
+  const result: Partial<Record<AgentName, number>> = {};
+  for (const agent of Object.keys(firstTs) as AgentName[]) {
+    const start = firstTs[agent];
+    const end = lastTs[agent];
+    if (start !== undefined && end !== undefined) {
+      result[agent] = Math.max(0, end - start);
+    }
+  }
+  return result;
 }

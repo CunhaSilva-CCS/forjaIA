@@ -1,4 +1,6 @@
 import type { AppState } from '../hooks/useForjaApp';
+import { deriveStageDurations } from '../utils/deriveAgentStates';
+import { formatDuration } from '../utils/modelLimits';
 
 const CREATE_AGENTS = [
   ['architect', 'Arquiteto'],
@@ -43,6 +45,8 @@ export function PipelinePanel({ s }: { s: AppState }) {
         : 'Planejando'
       : (s.taskStatus && STATUS_LABELS[s.taskStatus]) || s.taskStatus;
 
+  const durations = deriveStageDurations(s.logs);
+
   return (
     <div className="forge-panel agents-board">
       <h3 className="panel-title">Pipeline</h3>
@@ -58,6 +62,7 @@ export function PipelinePanel({ s }: { s: AppState }) {
                 }`}
               >
                 <span>{label}</span>
+                {durations[agent] != null && <span className="chip-meta">{formatDuration(durations[agent]!)}</span>}
               </div>
             ))}
           </div>
@@ -68,6 +73,12 @@ export function PipelinePanel({ s }: { s: AppState }) {
             {QUALITY_AGENTS.map(([agent, label]) => (
               <div key={agent} className={`agent-chip ${s.agentStates[agent]} ${s.activeAgent === agent ? 'pulse' : ''}`}>
                 <span>{label}</span>
+                {agent === 'healer' && s.healingAttempts > 0 && (
+                  <span className="chip-meta chip-meta-count" title={`${s.healingAttempts}ª tentativa de cura`}>
+                    {s.healingAttempts}×
+                  </span>
+                )}
+                {durations[agent] != null && <span className="chip-meta">{formatDuration(durations[agent]!)}</span>}
               </div>
             ))}
           </div>

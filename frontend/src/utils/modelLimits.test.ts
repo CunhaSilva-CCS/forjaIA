@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveModelLimits, formatTokens, pct } from './modelLimits';
+import { resolveModelLimits, formatTokens, pct, formatDuration } from './modelLimits';
 
 describe('resolveModelLimits', () => {
   it('reconhece um modelo Gemini conhecido', () => {
@@ -63,5 +63,27 @@ describe('pct', () => {
   it('retorna 0 quando total é zero ou ausente', () => {
     expect(pct(10, 0)).toBe(0);
     expect(pct(10, undefined as unknown as number)).toBe(0);
+  });
+});
+
+describe('formatDuration', () => {
+  it('mostra segundos abaixo de um minuto', () => {
+    expect(formatDuration(41_000)).toBe('41s');
+    expect(formatDuration(0)).toBe('0s');
+  });
+
+  it('mostra minutos e segundos abaixo de uma hora', () => {
+    expect(formatDuration(65_000)).toBe('1m05s');
+    expect(formatDuration(3_599_000)).toBe('59m59s');
+  });
+
+  it('mostra horas e minutos a partir de uma hora', () => {
+    expect(formatDuration(3_600_000)).toBe('1h00m');
+    expect(formatDuration(3_725_000)).toBe('1h02m');
+  });
+
+  it('arredonda e nunca fica negativo', () => {
+    expect(formatDuration(-500)).toBe('0s');
+    expect(formatDuration(1_499)).toBe('1s');
   });
 });

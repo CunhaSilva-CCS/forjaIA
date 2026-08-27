@@ -68,3 +68,13 @@ export function pct(used: number, total: number): number {
   if (!total || total <= 0) return 0;
   return Math.min(100, Math.round((used / total) * 1000) / 10);
 }
+
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m${String(seconds).padStart(2, '0')}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h${String(minutes % 60).padStart(2, '0')}m`;
+}
