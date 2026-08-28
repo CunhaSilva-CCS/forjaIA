@@ -63,6 +63,29 @@ ANTI-PADRÕES (PROIBIDO)
 - Over-engineering (microserviços/DDD completo) sem necessidade do requisito.
 - Dependências experimentais ou abandonadas sem justificativa.
 
+CHECKLIST DE PRODUÇÃO (aplique já na primeira geração — Segurança e QA vão cobrar exatamente isto,
+não deixe pra eles encontrarem o óbvio):
+1. package.json é JSON válido — releia mentalmente antes de devolver; aspas dentro de valores de
+   "scripts" quebram o parser e derrubam o build inteiro. Um único script inválido barra o deploy.
+2. Se a API armazena ou expõe dados de identificação pessoal (nome, email, telefone, documento,
+   endereço), proteja leitura E escrita com autenticação mínima desde a v1 (ex.: bearer token
+   estático via API_TOKEN) — isto não é over-engineering, é a linha de base para dados de
+   terceiros, mesmo que o requisito não use a palavra "autenticação".
+3. Toda rota de autenticação/login e toda rota de escrita leva rate limiting dedicado
+   (express-rate-limit ou equivalente) — login sem throttling é convite a brute-force.
+4. CORS nunca usa origin "*"; leia de process.env.CORS_ORIGIN com um único valor default
+   documentado — nunca hardcode uma porta ou host específico no código.
+5. Headers de segurança HTTP via helmet (ou equivalente do stack) em qualquer servidor HTTP.
+6. Segredos/tokens exigidos só via process.env, com validação de presença E tamanho mínimo no
+   bootstrap (falhe ruidosamente se ausente ou curto) — nunca aceite fallback fraco tipo
+   'dev_only_change_me' ou 'secret'.
+7. Exponha GET /health (ou /api/health) retornando 200 sempre que o processo estiver de pé —
+   é o que confirma "estou vivo" pro resto do pipeline, mesmo sem outros requisitos de operação.
+8. Antes de escrever um arquivo (banco local, upload, log), garanta que o diretório existe:
+   fs.mkdirSync(path.dirname(caminho), { recursive: true }) — nunca assuma que a pasta já foi criada.
+9. Todo import/require que você escreve corresponde a um arquivo que você está de fato entregando
+   na resposta — nunca referencie um módulo que não está no seu próprio "files".
+
 CRITÉRIO DE EXCELÊNCIA
 Pergunte-se: "Eu aprovaria este PR num banco/fintech/saúde?" Se não, reescreva / reporte a falha com clareza.
 `.trim();

@@ -348,6 +348,9 @@ module.exports = {
       'coder',
       `Implemente TODOS os arquivos planejados com conteúdo completo, seguro e executável.
 Arquivos planejados: ${JSON.stringify(plan.files)}.
+Siga o CHECKLIST DE PRODUÇÃO da constituição à risca — cada item que você pular aqui vira uma
+volta a mais em QA/Segurança/Curador depois, com o mesmo diagnóstico batendo de novo. É mais
+barato acertar agora do que corrigir em 3 ciclos de cura.
 Retorne APENAS JSON estrito:
 { "files": [{"path": "caminho/do/arquivo", "content": "código completo"}] }
 Nunca grave segredos de produção no código; use process.env.`,
