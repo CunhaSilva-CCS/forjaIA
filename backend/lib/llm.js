@@ -466,6 +466,17 @@ function isRecoverableLlmError(err) {
 }
 
 /**
+ * Falha de billing/crédito é específica DAQUELE provedor — não tem por que outro provedor cloud
+ * falhar junto (ao contrário de um erro genérico de rede/rate-limit, que pode ser sintoma de algo
+ * mais amplo). Usado por fallbackProviders pra decidir se vale tentar outro cloud antes do Ollama
+ * local, em vez de assumir "cloud pago falhou, então local primeiro" incondicionalmente.
+ */
+function isBillingError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return /credit balance|too low|billing|purchase credits|insufficient.?(funds|credit)/.test(msg);
+}
+
+/**
  * Modelo padrão ("premium") por provedor: o mesmo de sempre, usado pelas etapas que geram o
  * entregável (arquiteto/codificador/depurador/curador). Modelo "economy": mais barato/rápido,
  * usado só pela camada de revisão sênior opcional (thinkAsSenior, ver ADR-010) — economia real
@@ -538,30 +549,43 @@ async function callByProvider(provider, { system, user, runConfig, signal, tier 
   });
 }
 
-function fallbackProviders(primary) {
+function fallbackProviders(primary, { billingIssue = false } = {}) {
   const order = [];
   const push = (p) => {
     if (!order.includes(p)) order.push(p);
   };
   push(primary);
-  // Após falha de quota cloud, Ollama local primeiro (Claude/Gemini pagos costumam falhar juntos)
-  push('ollama');
-  if (config.defaultLlmProvider) push(String(config.defaultLlmProvider).toLowerCase());
-  if (config.geminiApiKey) push('gemini');
-  if (config.openaiApiKey) push('openai');
-  // Claude por último: billing costuma falhar sem créditos
-  if (config.anthropicApiKey) push('claude');
+  if (billingIssue) {
+    // Sem crédito é problema DAQUELE provedor — outro cloud não tem por que estar no mesmo
+    // barco. Tenta alternativas pagas primeiro (rápidas, boa qualidade); Ollama local só como
+    // último recurso, já que costuma ser bem mais lento pra payloads grandes.
+    if (config.geminiApiKey) push('gemini');
+    if (config.openaiApiKey) push('openai');
+    if (config.anthropicApiKey) push('claude');
+    push('ollama');
+  } else {
+    // Erro genérico (rede/rate-limit/timeout) pode ser sintoma de algo mais amplo — Ollama
+    // local primeiro continua sendo a aposta mais segura aqui.
+    push('ollama');
+    if (config.defaultLlmProvider) push(String(config.defaultLlmProvider).toLowerCase());
+    if (config.geminiApiKey) push('gemini');
+    if (config.openaiApiKey) push('openai');
+    if (config.anthropicApiKey) push('claude');
+  }
   return order;
 }
 
 async function generateJson({ system, user, runConfig = {}, signal, tier = 'premium' }) {
   const primary = resolveProvider(runConfig);
-  const chain = fallbackProviders(primary);
   let lastError = null;
 
   return withRetries(
     async () => {
-      for (const provider of chain) {
+      let chain = [primary];
+      let expanded = false;
+
+      for (let i = 0; i < chain.length; i += 1) {
+        const provider = chain[i];
         try {
           // Skip providers that clearly cannot run
           if (provider === 'gemini' && !config.geminiApiKey) continue;
@@ -582,7 +606,15 @@ async function generateJson({ system, user, runConfig = {}, signal, tier = 'prem
           if (provider === primary && !isRecoverableLlmError(err)) {
             throw err;
           }
-          // recoverable or already past primary → try next
+          // Só monta o resto da cadeia depois de saber POR QUE o primário falhou — billing
+          // muda a ordem (outro cloud antes do Ollama local, ver fallbackProviders).
+          if (!expanded) {
+            expanded = true;
+            const rest = fallbackProviders(primary, { billingIssue: isBillingError(err) }).filter(
+              (p) => p !== primary
+            );
+            chain = chain.concat(rest);
+          }
           continue;
         }
       }
@@ -773,6 +805,8 @@ module.exports = {
   resolveReviewProvider,
   resolveGeminiModel,
   resolveTierModel,
+  fallbackProviders,
+  isBillingError,
   providerStatus,
   probeLlm
 };

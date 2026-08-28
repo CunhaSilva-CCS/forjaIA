@@ -130,9 +130,32 @@ function applyHeuristicFixes(files, report) {
 }
 
 /**
+ * Paths mencionados no texto do relato (nome do arquivo ou caminho completo) ou nos achados do
+ * simulador humanístico — mesmo espírito de agent/healer.js's collectFlaggedPaths, adaptado pra
+ * texto livre em vez de relatório estruturado. Achado real validando o secPass: sem isso,
+ * userFix.js mandava TODO o codebase (183 arquivos, ~505 mil tokens) numa chamada só, mesmo pra
+ * um relato citando 3 arquivos específicos — estourava qualquer contexto de LLM.
+ */
+function collectFlaggedPathsFromReport(knownPaths, userReport, humanReport) {
+  const flagged = new Set();
+  const text = String(userReport || '');
+  for (const p of knownPaths) {
+    const base = path.basename(p);
+    if (text.includes(p) || (base.length > 3 && text.includes(base))) {
+      flagged.add(p);
+    }
+  }
+  for (const issue of humanReport?.issues || []) {
+    if (issue?.file && knownPaths.has(issue.file)) flagged.add(issue.file);
+  }
+  return flagged;
+}
+
+/**
  * Corrige erros relatados pelo usuário humano (ou achados do simulador humanístico).
  */
 module.exports = {
+  collectFlaggedPathsFromReport,
   execute: async (files, report, runConfig, orchestrator) => {
     orchestrator.throwIfAborted();
     announceThinking(orchestrator, 'userFix');
@@ -163,6 +186,29 @@ Se GET / retornar 404 em API Express, adicione app.get('/', ...) com JSON de sta
       runConfig
     );
 
+    // Mandar o codebase inteiro é caro/lento e pode estourar o contexto do LLM em projetos
+    // reais — manda só os arquivos citados no relato + quem os importa, resto só por path.
+    // Sem nada reconhecível no texto, cai pro codebase completo (mesmo comportamento de antes).
+    const { findDependents } = require('./healer');
+    const knownPaths = new Set((files || []).map((f) => f.path));
+    const flaggedPaths = collectFlaggedPathsFromReport(knownPaths, userReport, humanReport);
+    const dependentPaths = flaggedPaths.size ? findDependents(files, flaggedPaths) : new Set();
+    const selectedPaths = new Set([...flaggedPaths, ...dependentPaths]);
+    const pkg = (files || []).find((f) => f.path === 'package.json');
+    if (pkg) selectedPaths.add(pkg.path);
+
+    const useSelective = selectedPaths.size > 0 && selectedPaths.size < (files || []).length;
+    const filesToSend = useSelective ? files.filter((f) => selectedPaths.has(f.path)) : files;
+    const manifestOnly = useSelective ? files.filter((f) => !selectedPaths.has(f.path)) : [];
+
+    if (useSelective) {
+      orchestrator.log(
+        'userFix',
+        `Enviando ${filesToSend.length}/${files.length} arquivo(s) relevantes ao Corretor (resto só por path).`,
+        'info'
+      );
+    }
+
     const user = `
 Relato do usuário (prioridade máxima):
 ${userReport || '(nenhum texto — usar só achados do simulador)'}
@@ -170,9 +216,15 @@ ${userReport || '(nenhum texto — usar só achados do simulador)'}
 Relatório do Simulador Humanístico (tela):
 ${JSON.stringify(humanReport || null)}
 
-Arquivos atuais:
-${JSON.stringify((files || []).map((f) => ({ path: f.path, content: f.content })))}
-
+Arquivos com conteúdo completo (relevantes ao relato):
+${JSON.stringify(filesToSend.map((f) => ({ path: f.path, content: f.content })))}
+${
+  manifestOnly.length
+    ? `\nOutros arquivos do projeto que existem mas não foram incluídos por não parecerem relevantes
+(se descobrir que precisa editar algum, pode devolvê-lo mesmo assim — use o path exato):
+${JSON.stringify(manifestOnly.map((f) => f.path))}\n`
+    : ''
+}
 Corrija os problemas relatados. Devolva o conteúdo completo de cada arquivo alterado.
 `;
 
@@ -203,13 +255,27 @@ Corrija os problemas relatados. Devolva o conteúdo completo de cada arquivo alt
         );
         return files || [];
       }
+      // Achado real (mesmo bug do healer.js, ver ADR-014): um item sem "path" válido no meio de
+      // uma resposta boa virava chave undefined no Map e quebrava path.basename() mais abaixo.
+      const validFiles = result.data.files.filter((f) => f && typeof f.path === 'string' && f.path.trim());
+      if (validFiles.length < result.data.files.length) {
+        orchestrator.log(
+          'userFix',
+          `${result.data.files.length - validFiles.length} arquivo(s) retornado(s) sem path válido, ignorado(s).`,
+          'warning'
+        );
+      }
+      if (!validFiles.length) {
+        throw new Error('O Corretor do Usuário não retornou arquivos com path válido');
+      }
+
       if (result.data.summary) {
         orchestrator.log('userFix', result.data.summary, 'success');
       } else {
         orchestrator.log('userFix', `Correções aplicadas via ${result.provider}.`, 'success');
       }
 
-      const byPath = new Map(result.data.files.map((f) => [f.path, f.content]));
+      const byPath = new Map(validFiles.map((f) => [f.path, f.content]));
       const patched = (files || []).map((orig) => {
         if (!byPath.has(orig.path)) return orig;
         const content = byPath.get(orig.path);
