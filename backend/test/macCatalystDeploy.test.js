@@ -28,6 +28,26 @@ describe('findXcodeWorkspace (ADR-018)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-nows-'));
     assert.equal(findXcodeWorkspace(dir), null);
   });
+
+  it('achado real: rejeita nome de workspace com metacaractere de shell (injeção de comando)', () => {
+    // workspace/scheme acabam interpolados sem escape numa string de shell (xcodebuild ...,
+    // execAsync roda com shell:true) — um nome como `Evil".xcworkspace` quebraria as aspas
+    // duplas e injetaria comando arbitrário. O nome do arquivo é decidido por quem gerou o
+    // projeto (o LLM, via agent/coder.js), não confiável por padrão.
+    const { findXcodeWorkspace } = fresh('../lib/mobileDeploy');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-evil-ws-'));
+    fs.mkdirSync(path.join(dir, 'ios', 'Evil`touch pwned`.xcworkspace'), { recursive: true });
+    assert.equal(findXcodeWorkspace(dir), null);
+  });
+
+  it('aceita nome de workspace normal (letras, número, espaço, hífen)', () => {
+    const { findXcodeWorkspace } = fresh('../lib/mobileDeploy');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-normal-ws-'));
+    fs.mkdirSync(path.join(dir, 'ios', 'Meu App 2.xcworkspace'), { recursive: true });
+    const ws = findXcodeWorkspace(dir);
+    assert.equal(ws.workspace, 'Meu App 2.xcworkspace');
+    assert.equal(ws.scheme, 'Meu App 2');
+  });
 });
 
 describe('supportsMacCatalyst (ADR-018)', () => {

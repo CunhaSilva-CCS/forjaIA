@@ -577,6 +577,17 @@ class Orchestrator extends EventEmitter {
     if (!this.currentTask) {
       throw Object.assign(new Error('Nenhuma tarefa ativa para corrigir'), { status: 400 });
     }
+    // Sem essa checagem, mandar uma mensagem no chat do terminal DEPOIS de uma run já terminada
+    // (completed/failed/cancelled) "ressuscitava" a task pra `awaiting_approval` — currentTask
+    // nunca é zerado ao terminar, então isso travava toda run futura com "Há uma execução
+    // aguardando aprovação" até alguém aprovar/cancelar manualmente esse fantasma, e nem reinício
+    // do servidor limpava (restorePendingApproval também acha esse status na volta).
+    if (['completed', 'failed', 'cancelled'].includes(this.currentTask.status)) {
+      throw Object.assign(
+        new Error('Esta execução já terminou — inicie uma nova run para relatar um problema'),
+        { status: 409 }
+      );
+    }
     if (this.isExecuting) {
       throw Object.assign(new Error('Aguarde a etapa atual terminar antes de enviar o relato'), {
         status: 409

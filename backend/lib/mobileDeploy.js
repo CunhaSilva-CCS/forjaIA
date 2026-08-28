@@ -163,13 +163,25 @@ async function deployToSimulator({ projectDir, orchestrator }) {
   };
 }
 
+// Nome de workspace/scheme "normal" de Xcode — letras, números, espaço, ponto, hífen, underscore,
+// parênteses. Qualquer coisa fora disso (aspas, backtick, `$(`, `;`, etc.) é rejeitada.
+const SAFE_XCODE_NAME = /^[\w .+()-]+$/;
+
 /** Acha o .xcworkspace do projeto (convenção Expo/RN: nome do workspace == nome do scheme). */
 function findXcodeWorkspace(projectDir) {
   const iosDir = path.join(projectDir, 'ios');
   if (!fs.existsSync(iosDir)) return null;
   const entry = fs.readdirSync(iosDir).find((f) => f.endsWith('.xcworkspace'));
   if (!entry) return null;
-  return { dir: iosDir, workspace: entry, scheme: entry.replace(/\.xcworkspace$/, '') };
+  const scheme = entry.replace(/\.xcworkspace$/, '');
+  // `entry`/`scheme` acabam interpolados sem escape numa string de shell (`execAsync` roda com
+  // `shell: true`) tanto aqui quanto em deployToMac/supportsMacCatalyst. O nome vem do sistema de
+  // arquivos, mas quem decide o nome de um arquivo escrito pelo pipeline é o LLM (`agent/coder.js`
+  // grava o `.xcworkspace` como qualquer outro arquivo gerado) — um nome como `Evil".xcworkspace`
+  // quebraria as aspas duplas e injetaria comando arbitrário. Rejeita em vez de escapar: nomes de
+  // workspace/scheme reais nunca precisam de aspas/backtick/`$(`/`;`.
+  if (!SAFE_XCODE_NAME.test(entry) || !SAFE_XCODE_NAME.test(scheme)) return null;
+  return { dir: iosDir, workspace: entry, scheme };
 }
 
 /**

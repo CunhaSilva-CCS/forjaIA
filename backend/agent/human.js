@@ -82,12 +82,48 @@ function makeCookieJar() {
   };
 }
 
+function safeOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 async function httpStep(base, step, orchestrator, cookieJar) {
   const method = String(step.method || step.action || 'GET').toUpperCase();
   const path = step.path || '/';
+  const started0 = Date.now();
+
+  // `path` vem de JSON gerado pelo LLM (a "jornada" de teste humano) — sem essa checagem, uma
+  // URL absoluta pra um host diferente do deploy sendo testado seria seguida direto, levando
+  // junto o cookie de sessão e as credenciais reais (`knownCredentials`) anexadas mais abaixo.
+  // Isso é SSRF + exfiltração de segredo via prompt injection no próprio código do projeto, não
+  // um caso hipotético: o LLM só precisa emitir `{ "path": "http://attacker/..." }`.
+  if (/^https?:\/\//i.test(path)) {
+    const baseOrigin = safeOrigin(base);
+    const stepOrigin = safeOrigin(path);
+    if (!baseOrigin || stepOrigin !== baseOrigin) {
+      orchestrator.log(
+        'human',
+        `${step.asHuman || step.id || path}: passo bloqueado — URL absoluta fora do host testado (${path})`,
+        'warning'
+      );
+      return {
+        ok: false,
+        status: 0,
+        ms: Date.now() - started0,
+        failure: `URL absoluta fora do host testado: ${path}`,
+        bodyPreview: ''
+      };
+    }
+  }
+
   const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`;
   const headers = { Accept: 'application/json, text/html, */*', ...(step.headers || {}) };
-  const cookieHeader = cookieJar?.header();
+  // Cookie/credenciais só valem pro host que está sendo testado de verdade — nunca pra um alvo
+  // que a checagem acima já teria bloqueado, mas a dupla checagem custa nada e documenta a intenção.
+  const cookieHeader = safeOrigin(url) === safeOrigin(base) ? cookieJar?.header() : null;
   if (cookieHeader) headers.Cookie = cookieHeader;
   let body;
   if (step.body != null && !['GET', 'HEAD'].includes(method)) {
@@ -676,5 +712,6 @@ Retorne APENAS JSON:
       notesForUserFix: senior?.notesForUserFix || '',
       seniorReview: senior || null
     };
-  }
+  },
+  __test__: { httpStep, safeOrigin }
 };

@@ -1,11 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-
-const SECRET_PATTERNS = [
-  /(?:api[_-]?key|secret|password|token)\s*[:=]\s*['"`][^'"`]{8,}['"`]/i,
-  /(?:sk-|AIza|ghp_|xox[baprs]-)[A-Za-z0-9_-]{12,}/
-];
+const { scanForHardcodedSecrets } = require('./secretScan');
 
 function readSafe(filePath) {
   try {
@@ -95,11 +91,19 @@ function codeUsesPortEnv(deployDir) {
   };
 }
 
+/**
+ * Antes rodava um segundo detector de segredo próprio, sem os fixes do ADR-011 (sem exclusão de
+ * arquivo de teste, sem checar se o valor "parece" segredo de verdade) — reintroduzia os mesmos
+ * falsos-positivos já corrigidos em `lib/secretScan.js`/`agent/security.js` (ex.: `const password
+ * = "Abc!2345"` num fixture `__tests__/*.test.js`), fazendo o checklist de produção bloquear a run
+ * (`severity: 'CRITICAL'`) por um "segredo" que o SAST da etapa de Segurança já tinha deixado
+ * passar corretamente no mesmo run. Agora reusa o scanner endurecido em vez de duplicar a lógica.
+ */
 function scanHardcodedSecrets(deployDir) {
-  const hits = [];
+  const filesToScan = [];
   const skip = new Set(['node_modules', '.git', 'data', 'dist', 'coverage']);
   function walk(dir, depth = 0) {
-    if (depth > 4 || hits.length >= 5) return;
+    if (depth > 4) return;
     let entries = [];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -117,16 +121,12 @@ function scanHardcodedSecrets(deployDir) {
       if (ent.name === '.env') continue;
       const content = readSafe(full);
       if (!content) continue;
-      for (const re of SECRET_PATTERNS) {
-        if (re.test(content)) {
-          hits.push(path.relative(deployDir, full));
-          break;
-        }
-      }
+      filesToScan.push({ path: path.relative(deployDir, full), content });
     }
   }
   walk(deployDir);
-  return hits;
+  const issues = scanForHardcodedSecrets(filesToScan);
+  return [...new Set(issues.map((issue) => issue.file))];
 }
 
 function defaultDockerfile(deployPort) {

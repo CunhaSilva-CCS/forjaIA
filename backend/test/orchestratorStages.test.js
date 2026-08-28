@@ -345,6 +345,44 @@ describe('devopsLoadStage', () => {
     }
   });
 
+  it('achado real: chaos.stop e cleanupSandbox rodam mesmo quando loadTester.run falha', async () => {
+    const devops = fresh('../agent/devops');
+    const loadTester = fresh('../sandbox/load_tester');
+    const chaos = fresh('../sandbox/chaos');
+    const originals = {
+      prepareSandbox: devops.prepareSandbox,
+      cleanupSandbox: devops.cleanupSandbox,
+      run: loadTester.run,
+      start: chaos.start,
+      stop: chaos.stop
+    };
+    devops.prepareSandbox = async () => ({ baseUrl: 'http://127.0.0.1:1' });
+    let cleanupCalled = false;
+    devops.cleanupSandbox = async () => {
+      cleanupCalled = true;
+    };
+    let chaosStopped = false;
+    chaos.start = () => {};
+    chaos.stop = () => {
+      chaosStopped = true;
+    };
+    loadTester.run = async () => {
+      throw new Error('sandbox caiu no meio do teste de carga');
+    };
+    try {
+      const stage = fresh('../agent/stages/devopsLoadStage');
+      const orch = makeOrchestrator();
+      await assert.rejects(stage.run(orch, {}), /sandbox caiu no meio do teste de carga/);
+      assert.equal(chaosStopped, true);
+      assert.equal(cleanupCalled, true);
+    } finally {
+      Object.assign(devops, { prepareSandbox: originals.prepareSandbox, cleanupSandbox: originals.cleanupSandbox });
+      loadTester.run = originals.run;
+      chaos.start = originals.start;
+      chaos.stop = originals.stop;
+    }
+  });
+
   it('pula carga/caos e vai direto pro deploy em projeto mobile (ADR-014)', async () => {
     const devops = fresh('../agent/devops');
     const original = devops.prepareSandbox;

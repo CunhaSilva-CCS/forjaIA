@@ -22,25 +22,33 @@ async function run(orchestrator, runConfig) {
   const loadTester = require('../../sandbox/load_tester');
   const chaos = require('../../sandbox/chaos');
 
+  // Sem try/finally, uma falha em loadTester.run() (sandbox cair, cancelamento no meio) pulava
+  // tanto chaos.stop() quanto cleanupSandbox() — o container ficava órfão e o loop de injeção de
+  // falha do chaos.js (singleton do processo, não por run) continuava rodando indefinidamente
+  // contra ele, vazando pro próximo run também. security.js já protege o mesmo tipo de ciclo de
+  // vida de sandbox com try/catch; aqui não havia proteção nenhuma.
   chaos.start(orchestrator, sandboxConfig);
-  const metrics = await loadTester.run(sandboxConfig, orchestrator, orchestrator.currentTask.files);
-  await chaos.stop(orchestrator, sandboxConfig);
+  try {
+    const metrics = await loadTester.run(sandboxConfig, orchestrator, orchestrator.currentTask.files);
 
-  orchestrator.currentTask.performanceMetrics = metrics;
-  orchestrator.persistTask({ performanceMetrics: metrics });
-  orchestrator.log(
-    'devops',
-    `Carga+caos finalizados. Requisições=${metrics.totalRequests}, latência média=${metrics.avgLatency}ms, sucesso=${metrics.successRate}%`,
-    'success'
-  );
-  orchestrator.broadcast('metrics-updated', metrics);
-  orchestrator.broadcast('agent-finished', { agent: 'devops', status: 'success', data: { metrics } });
+    orchestrator.currentTask.performanceMetrics = metrics;
+    orchestrator.persistTask({ performanceMetrics: metrics });
+    orchestrator.log(
+      'devops',
+      `Carga+caos finalizados. Requisições=${metrics.totalRequests}, latência média=${metrics.avgLatency}ms, sucesso=${metrics.successRate}%`,
+      'success'
+    );
+    orchestrator.broadcast('metrics-updated', metrics);
+    orchestrator.broadcast('agent-finished', { agent: 'devops', status: 'success', data: { metrics } });
 
-  await devops.cleanupSandbox(sandboxConfig, orchestrator);
-  await orchestrator.pauseForApproval(
-    'deploy',
-    `Carga/caos ok (sucesso ${metrics.successRate}%). Aprove para o deploy local.`
-  );
+    await orchestrator.pauseForApproval(
+      'deploy',
+      `Carga/caos ok (sucesso ${metrics.successRate}%). Aprove para o deploy local.`
+    );
+  } finally {
+    await chaos.stop(orchestrator, sandboxConfig);
+    await devops.cleanupSandbox(sandboxConfig, orchestrator);
+  }
 }
 
 module.exports = { run };

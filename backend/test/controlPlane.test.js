@@ -189,6 +189,56 @@ http.createServer((req, res) => {
       server.close();
     }
   });
+
+  it('achado real: não bloqueia por senha literal em fixture de teste (ADR-011 reintroduzido aqui)', async () => {
+    // Mesmo caso exato do ADR-011: `const password = "Abc!2345"` num arquivo __tests__/*.test.js
+    // não é um segredo — é um fixture de teste. Um scanner sem os fixes do ADR-011 (duplicado
+    // aqui antes desta correção) reintroduz o falso positivo já resolvido em lib/secretScan.js.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-prodcheck-fixture-'));
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'demo', scripts: { start: 'node server.js' } })
+    );
+    fs.writeFileSync(
+      path.join(dir, 'server.js'),
+      `const http = require('http');\nconst port = Number(process.env.PORT || 3000);\nhttp.createServer((req, res) => res.end('ok')).listen(port);\n`
+    );
+    fs.mkdirSync(path.join(dir, '__tests__'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '__tests__', 'login.test.js'),
+      `test('login', () => { const password = "Abc!2345"; expect(login(password)).toBe(true); });\n`
+    );
+    const { evaluateProductionReady } = fresh('../lib/productionChecklist');
+    const result = await evaluateProductionReady({
+      deployDir: dir,
+      deployUrl: 'http://127.0.0.1:1',
+      relativeTarget: 'demo',
+      task: { tests: [{ name: 'a', passed: true }], securityIssues: [], humanReport: { passed: true } },
+      writeArtifacts: false
+    });
+    const secretsCheck = result.checks.find((c) => c.id === 'no-hardcoded-secrets');
+    assert.equal(secretsCheck.ok, true, secretsCheck.detail);
+  });
+
+  it('ainda detecta um segredo real fora de arquivo de teste', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-prodcheck-real-secret-'));
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'demo' }));
+    fs.writeFileSync(
+      path.join(dir, 'config.js'),
+      `module.exports = { anthropicKey: "sk-ant-${'a'.repeat(24)}" };\n`
+    );
+    const { evaluateProductionReady } = fresh('../lib/productionChecklist');
+    const result = await evaluateProductionReady({
+      deployDir: dir,
+      deployUrl: 'http://127.0.0.1:1',
+      relativeTarget: 'demo',
+      task: { tests: [], securityIssues: [], humanReport: { passed: false } },
+      writeArtifacts: false
+    });
+    const secretsCheck = result.checks.find((c) => c.id === 'no-hardcoded-secrets');
+    assert.equal(secretsCheck.ok, false);
+    assert.match(secretsCheck.detail, /config\.js/);
+  });
 });
 
 describe('human heuristic journey', () => {
@@ -259,6 +309,75 @@ describe('human heuristic journey', () => {
       assert.ok(report.session.steps.every((s) => s.ok));
     } finally {
       llm.generateJson = original;
+      server.close();
+    }
+  });
+});
+
+describe('human httpStep — bloqueio de SSRF/exfiltração de credencial (achado real)', () => {
+  it('segue path relativo normalmente, anexando cookie', async () => {
+    const server = require('http').createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'sid=abc' });
+      res.end(JSON.stringify({ receivedCookie: req.headers.cookie || null }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    const human = fresh('../agent/human');
+    const jar = { header: () => 'sid=abc', absorb: () => {} };
+    try {
+      const result = await human.__test__.httpStep(`http://127.0.0.1:${port}`, { path: '/x' }, { log: () => {} }, jar);
+      assert.equal(result.ok, true);
+      assert.equal(result.json.receivedCookie, 'sid=abc');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('bloqueia URL absoluta pra outro host, sem chegar a fazer a requisição nem anexar cookie', async () => {
+    let hit = false;
+    const attacker = require('http').createServer((req, res) => {
+      hit = true;
+      res.writeHead(200);
+      res.end('deveria não ter chegado aqui');
+    });
+    await new Promise((resolve) => attacker.listen(0, '127.0.0.1', resolve));
+    const { port: attackerPort } = attacker.address();
+    const human = fresh('../agent/human');
+    const jar = { header: () => 'sid=segredo-de-sessao', absorb: () => {} };
+    try {
+      const result = await human.__test__.httpStep(
+        'http://127.0.0.1:9', // base (deploy sob teste) — porta que nem existe, não deveria ser usada mesmo
+        { path: `http://127.0.0.1:${attackerPort}/collect` },
+        { log: () => {} },
+        jar
+      );
+      assert.equal(result.ok, false);
+      assert.match(result.failure, /URL absoluta fora do host testado/);
+      assert.equal(hit, false, 'a requisição pro host externo nunca deveria ter sido feita');
+    } finally {
+      attacker.close();
+    }
+  });
+
+  it('permite URL absoluta quando é exatamente o mesmo host do deploy', async () => {
+    const server = require('http').createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, cookie: req.headers.cookie || null }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    const human = fresh('../agent/human');
+    const jar = { header: () => 'sid=abc', absorb: () => {} };
+    try {
+      const result = await human.__test__.httpStep(
+        `http://127.0.0.1:${port}`,
+        { path: `http://127.0.0.1:${port}/same-host` },
+        { log: () => {} },
+        jar
+      );
+      assert.equal(result.ok, true);
+      assert.equal(result.json.cookie, 'sid=abc');
+    } finally {
       server.close();
     }
   });
