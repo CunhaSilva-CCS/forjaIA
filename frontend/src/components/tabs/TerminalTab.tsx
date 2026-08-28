@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Send } from 'lucide-react';
 import type { AppState } from '../../hooks/useForjaApp';
 
 // Mensagens de erro do backend costumam embutir o stack trace inteiro do
@@ -24,34 +25,71 @@ export function TerminalTab({ s }: { s: AppState }) {
     });
   };
 
+  const [draft, setDraft] = useState('');
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text || s.isExecuting) return;
+    setDraft('');
+    void s.handleUserReport(text);
+  };
+
   return (
-    <div className="terminal">
-      {s.logs.map((log, i) => {
-        const isLong = log.message.length > COLLAPSE_THRESHOLD;
-        if (!isLong) {
+    <div className="terminal-wrap">
+      <div className="terminal">
+        {s.logs.map((log, i) => {
+          const isUser = log.agent === 'user';
+          const isLong = log.message.length > COLLAPSE_THRESHOLD;
+          if (!isLong) {
+            return (
+              <div key={i} className={`log-line ${log.type} ${isUser ? 'user-message' : ''}`}>
+                <span className="log-agent">[{isUser ? 'você' : log.agent}]</span> {log.message}
+              </div>
+            );
+          }
+          const { summary, rest } = splitSummary(log.message);
+          const isOpen = expanded.has(i);
           return (
-            <div key={i} className={`log-line ${log.type}`}>
-              <span className="log-agent">[{log.agent}]</span> {log.message}
+            <div key={i} className={`log-line log-line-collapsible ${log.type}`}>
+              <span className="log-agent">[{log.agent}]</span>
+              <span>
+                {summary}
+                {!isOpen && '…'}
+                <button type="button" className="log-toggle" onClick={() => toggle(i)}>
+                  {isOpen ? 'recolher' : `ver stack trace completo (${log.message.length} caracteres)`}
+                </button>
+                {isOpen && rest && <pre className="log-trace">{rest}</pre>}
+              </span>
             </div>
           );
-        }
-        const { summary, rest } = splitSummary(log.message);
-        const isOpen = expanded.has(i);
-        return (
-          <div key={i} className={`log-line log-line-collapsible ${log.type}`}>
-            <span className="log-agent">[{log.agent}]</span>
-            <span>
-              {summary}
-              {!isOpen && '…'}
-              <button type="button" className="log-toggle" onClick={() => toggle(i)}>
-                {isOpen ? 'recolher' : `ver stack trace completo (${log.message.length} caracteres)`}
-              </button>
-              {isOpen && rest && <pre className="log-trace">{rest}</pre>}
-            </span>
-          </div>
-        );
-      })}
-      <div ref={s.logsEndRef} />
+        })}
+        <div ref={s.logsEndRef} />
+      </div>
+      <div className="terminal-chat-row">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              send();
+            }
+          }}
+          disabled={s.isExecuting}
+          placeholder={
+            s.isExecuting ? 'Aguarde a etapa atual terminar…' : 'Fale com o Corretor — descreva o que quer ajustar…'
+          }
+          aria-label="Mensagem para o agente"
+        />
+        <button
+          type="button"
+          onClick={send}
+          disabled={s.isExecuting || !draft.trim()}
+          title="Enfileira o Corretor de Erros do Usuário com esta mensagem"
+        >
+          <Send size={13} /> Enviar
+        </button>
+      </div>
     </div>
   );
 }

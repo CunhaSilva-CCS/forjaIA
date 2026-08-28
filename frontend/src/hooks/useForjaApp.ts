@@ -638,8 +638,11 @@ export function useForjaApp() {
     }
   };
 
-  const handleUserReport = async () => {
-    const message = userErrorReport.trim();
+  const handleUserReport = async (messageOverride?: string) => {
+    // Aceita um texto direto (chat do terminal) em vez de sempre ler userErrorReport —
+    // setState é assíncrono, então quem acabou de chamar setUserErrorReport(x) e emenda
+    // handleUserReport() no mesmo tick ainda pegaria o valor antigo do estado.
+    const message = (messageOverride ?? userErrorReport).trim();
     if (!message) {
       showToast('Descreva o erro visto na tela');
       return;

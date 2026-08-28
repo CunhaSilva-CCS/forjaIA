@@ -866,6 +866,14 @@ a:focus-visible {
   max-height: none;
 }
 
+.terminal-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+}
+
 .terminal {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -873,9 +881,42 @@ a:focus-visible {
   border: 1px solid var(--panel-edge);
   border-radius: 8px;
   padding: 8px 10px;
-  height: 100%;
+  flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+/* Linha de mensagem do próprio usuário no terminal — distinta do log dos agentes,
+ * acento ember porque é a direção humana entrando na forja. */
+.log-line.user-message {
+  background: rgba(var(--ember-rgb), 0.08);
+  border-left: 2px solid var(--ember);
+  border-radius: 0 6px 6px 0;
+  padding: 3px 8px;
+  margin: 2px 0;
+}
+
+.log-line.user-message .log-agent {
+  color: var(--ember);
+}
+
+.terminal-chat-row {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.terminal-chat-row input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.terminal-chat-row button {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .log-line {

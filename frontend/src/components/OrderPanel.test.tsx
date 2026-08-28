@@ -56,7 +56,16 @@ describe('OrderPanel', () => {
       <OrderPanel
         s={makeState({
           selectProject,
-          projects: [{ id: 'p1', name: 'meu-app', path: 'meu-app', source: 'registered', existsOnDisk: true }]
+          projects: [
+            {
+              id: 'p1',
+              name: 'meu-app',
+              path: 'meu-app',
+              source: 'registered',
+              existsOnDisk: true,
+              created_at: '2026-08-28T00:00:00.000Z'
+            }
+          ]
         })}
       />
     );

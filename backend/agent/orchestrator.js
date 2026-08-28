@@ -598,6 +598,10 @@ class Orchestrator extends EventEmitter {
       config: this.savedConfig
     });
     this.broadcast('task-awaiting-approval', this.currentTask);
+    // A mensagem em si vira uma linha no terminal (tag "user") — sem isso, o texto ficava
+    // só guardado em savedConfig.userReport, invisível na conversa; a UI vira um campo de
+    // chat que "esquece" o que você acabou de dizer assim que envia.
+    this.log('user', text, 'info');
     this.log('orchestrator', 'Relato do usuário enfileirado → Corretor (userFix).', 'info');
     return {
       success: true,

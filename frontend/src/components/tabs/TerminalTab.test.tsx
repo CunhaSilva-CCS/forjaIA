@@ -1,14 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TerminalTab } from './TerminalTab';
 import type { AppState } from '../../hooks/useForjaApp';
 import type { LogLine } from '../../types/agent';
 
-function makeState(logs: LogLine[]): AppState {
+function makeState(logs: LogLine[], overrides: Partial<AppState> = {}): AppState {
   return {
     logs,
-    logsEndRef: { current: null }
+    logsEndRef: { current: null },
+    isExecuting: false,
+    handleUserReport: vi.fn(),
+    ...overrides
   } as unknown as AppState;
 }
 
@@ -24,7 +27,7 @@ describe('TerminalTab', () => {
   it('mostra mensagens curtas direto, sem toggle', () => {
     render(<TerminalTab s={makeState([{ agent: 'orchestrator', message: SHORT_MESSAGE, type: 'warning', timestamp: '2026-01-01T00:00:00.000Z' }])} />);
     expect(screen.getByText(SHORT_MESSAGE, { exact: false })).toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ver stack trace completo|recolher/ })).not.toBeInTheDocument();
   });
 
   it('recolhe mensagens longas (stack trace) por padrão, mostrando só o resumo', () => {
@@ -44,5 +47,43 @@ describe('TerminalTab', () => {
 
     await user.click(screen.getByRole('button', { name: 'recolher' }));
     expect(screen.queryByText(/TSError: Unable to compile TypeScript/)).not.toBeInTheDocument();
+  });
+
+  it('mostra a mensagem do usuário com a tag "você"', () => {
+    render(
+      <TerminalTab
+        s={makeState([{ agent: 'user', message: 'coloque um botão de exportar', type: 'info', timestamp: '2026-01-01T00:00:00.000Z' }])}
+      />
+    );
+    expect(screen.getByText('[você]')).toBeInTheDocument();
+    expect(screen.getByText(/coloque um botão de exportar/)).toBeInTheDocument();
+  });
+
+  it('envia a mensagem digitada ao clicar em Enviar e limpa o campo', async () => {
+    const handleUserReport = vi.fn();
+    const user = userEvent.setup();
+    render(<TerminalTab s={makeState([], { handleUserReport })} />);
+
+    const input = screen.getByLabelText('Mensagem para o agente');
+    await user.type(input, 'ajuste o CORS');
+    await user.click(screen.getByRole('button', { name: /enviar/i }));
+
+    expect(handleUserReport).toHaveBeenCalledWith('ajuste o CORS');
+    expect(input).toHaveValue('');
+  });
+
+  it('envia a mensagem ao pressionar Enter', async () => {
+    const handleUserReport = vi.fn();
+    const user = userEvent.setup();
+    render(<TerminalTab s={makeState([], { handleUserReport })} />);
+
+    await user.type(screen.getByLabelText('Mensagem para o agente'), 'corrija o login{Enter}');
+    expect(handleUserReport).toHaveBeenCalledWith('corrija o login');
+  });
+
+  it('desabilita o campo e o botão de enviar durante uma execução', () => {
+    render(<TerminalTab s={makeState([], { isExecuting: true })} />);
+    expect(screen.getByLabelText('Mensagem para o agente')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /enviar/i })).toBeDisabled();
   });
 });

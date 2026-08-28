@@ -113,30 +113,6 @@ export function OrderPanel({ s }: { s: AppState }) {
           </button>
         )}
       </div>
-
-      {(s.currentRunId || s.deployUrl || s.files?.length > 0) && (
-        <div className="field user-report-field">
-          <label htmlFor="user-error-report">Erro na tela</label>
-          <div className="user-report-row">
-            <textarea
-              id="user-error-report"
-              rows={1}
-              value={s.userErrorReport}
-              onChange={(e) => s.setUserErrorReport(e.target.value)}
-              disabled={s.isExecuting}
-              placeholder="Descreva o erro visto…"
-            />
-            <button
-              type="button"
-              onClick={s.handleUserReport}
-              disabled={s.isExecuting || !s.userErrorReport.trim()}
-              title="Enfileira o Corretor de Erros do Usuário"
-            >
-              Corrigir
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
