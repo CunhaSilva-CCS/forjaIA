@@ -98,6 +98,9 @@ function migrate(database) {
   const { ensureTeamTable } = require('./team');
   ensureTeamTable(database);
 
+  const { ensureLlmUsageTables } = require('./llmUsage');
+  ensureLlmUsageTables(database);
+
   const pref = database.prepare('SELECT id FROM preferences WHERE id = 1').get();
   if (!pref) {
     const legacyPath = path.join(__dirname, '../db/preferences.json');

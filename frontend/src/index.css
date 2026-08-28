@@ -1316,6 +1316,66 @@ a:focus-visible {
   color: var(--muted);
 }
 
+.llm-usage-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 8px;
+}
+
+.llm-usage-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.7fr 0.7fr 0.7fr;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--bg-sunken);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink);
+}
+
+.llm-usage-row.llm-usage-head {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0 8px;
+}
+
+.llm-usage-row.cooled-down {
+  border-color: rgba(var(--danger-rgb), 0.35);
+  background: rgba(var(--danger-rgb), 0.08);
+}
+
+.llm-usage-provider {
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge-cooldown {
+  font-family: var(--font-body);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--danger);
+  background: rgba(var(--danger-rgb), 0.15);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.llm-usage-reset {
+  font-size: 0.65rem;
+}
+
 .token-legend .dot {
   display: inline-block;
   width: 8px;

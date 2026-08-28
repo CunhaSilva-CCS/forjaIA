@@ -73,6 +73,31 @@ describe('HTTP integration (server.js real, via fetch)', () => {
     assert.ok(Array.isArray(await res.json()));
   });
 
+  it('GET /api/llm/usage (ADR-017) exige token e devolve periods + cooldowns', async () => {
+    const unauth = await fetch(`${BASE}/api/llm/usage`);
+    assert.equal(unauth.status, 401);
+
+    const res = await fetch(`${BASE}/api/llm/usage`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.periods.gemini, 'esperava entrada de período pro gemini');
+    assert.ok('today' in body.periods.gemini && 'week' in body.periods.gemini && 'month' in body.periods.gemini);
+    assert.ok(Array.isArray(body.cooldowns));
+  });
+
+  it('POST /api/llm/cooldown/:provider/clear (ADR-017) limpa um cooldown ativo', async () => {
+    const { providerCooldown } = require('../lib/llmUsage');
+    providerCooldown.set('claude', { reason: 'teste', ms: 60000 });
+    assert.ok(providerCooldown.get('claude'));
+
+    const res = await fetch(`${BASE}/api/llm/cooldown/claude/clear`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    assert.equal(res.status, 200);
+    assert.equal(providerCooldown.get('claude'), null);
+  });
+
   it('cabeçalhos de segurança do helmet estão presentes', async () => {
     const res = await fetch(`${BASE}/api/health`);
     assert.equal(res.headers.get('x-content-type-options'), 'nosniff');

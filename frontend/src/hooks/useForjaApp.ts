@@ -103,6 +103,18 @@ export function useForjaApp() {
     humanPassedRate: number | null;
   } | null>(null);
   const [reliabilityLoading, setReliabilityLoading] = useState(false);
+  const [llmUsage, setLlmUsage] = useState<{
+    periods: Record<
+      string,
+      {
+        today: { calls: number; tokens: number };
+        week: { calls: number; tokens: number };
+        month: { calls: number; tokens: number };
+      }
+    >;
+    cooldowns: Array<{ provider: string; until: string; reason: string }>;
+  } | null>(null);
+  const [llmUsageLoading, setLlmUsageLoading] = useState(false);
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [dockerActive, setDockerActive] = useState(false);
   const [cursorOnline, setCursorOnline] = useState(false);
@@ -333,6 +345,9 @@ export function useForjaApp() {
             ...payload,
             last: payload?.last ?? null
           });
+          // Cada chamada de LLM concluída pode ter mudado o uso por provedor (ou disparado um
+          // cooldown novo, ver ADR-017) — mantém o card de uso/crédito ao vivo, não só no mount.
+          api.llmUsage().then(setLlmUsage).catch(() => undefined);
           break;
         }
         case 'agent-active': {
@@ -490,6 +505,34 @@ export function useForjaApp() {
   useEffect(() => {
     void refreshReliabilityStats();
   }, [refreshReliabilityStats]);
+
+  const refreshLlmUsage = useCallback(async () => {
+    setLlmUsageLoading(true);
+    try {
+      const usage = await api.llmUsage();
+      setLlmUsage(usage);
+    } catch {
+      // silencioso — card mostra o último valor conhecido
+    } finally {
+      setLlmUsageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshLlmUsage();
+  }, [refreshLlmUsage]);
+
+  const clearProviderCooldown = useCallback(
+    async (provider: string) => {
+      try {
+        await api.clearProviderCooldown(provider);
+        await refreshLlmUsage();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Falha ao limpar cooldown');
+      }
+    },
+    [refreshLlmUsage]
+  );
 
   // removed auto-browse effect that looped on currentBrowserPath
   const runConfig = () => ({
@@ -816,6 +859,10 @@ export function useForjaApp() {
     reliabilityStats,
     reliabilityLoading,
     refreshReliabilityStats,
+    llmUsage,
+    llmUsageLoading,
+    refreshLlmUsage,
+    clearProviderCooldown,
     ollamaOnline,
     cursorOnline,
     hasGeminiKey,

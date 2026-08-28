@@ -80,6 +80,23 @@ export const api = {
       detail: string;
     }>(`/api/llm/status${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
   status: () => request<{ isExecuting: boolean; task: Task | null }>('/api/agent/status'),
+  llmUsage: () =>
+    request<{
+      periods: Record<
+        string,
+        {
+          today: { calls: number; tokens: number };
+          week: { calls: number; tokens: number };
+          month: { calls: number; tokens: number };
+        }
+      >;
+      cooldowns: Array<{ provider: string; until: string; reason: string }>;
+    }>('/api/llm/usage'),
+  clearProviderCooldown: (provider: string) =>
+    request<{ success: boolean }>(`/api/llm/cooldown/${encodeURIComponent(provider)}/clear`, {
+      method: 'POST',
+      body: '{}'
+    }),
   dockerStatus: () => request<{ active: boolean; required: boolean }>('/api/docker/status'),
   ollamaModels: () => request<{ online: boolean; models: string[] }>('/api/ollama/models'),
   workspace: () => request<{ workspaceRoot: string; defaultPath: string }>('/api/workspace'),

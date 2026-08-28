@@ -22,6 +22,10 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     tokenStats: { prompt: 0, completion: 0, total: 0, calls: 0, peakPrompt: 0, peakCompletion: 0, peakTotal: 0, last: null },
     tokenQuota: 500000,
     providerLocked: false,
+    llmUsage: null,
+    llmUsageLoading: false,
+    refreshLlmUsage: vi.fn(),
+    clearProviderCooldown: vi.fn(),
     ...overrides
   } as unknown as AppState;
 }
@@ -45,5 +49,50 @@ describe('LlmTokensCard', () => {
     await user.click(screen.getByLabelText('Provedor'));
     expect(screen.getByRole('option', { name: 'Cursor' })).toBeInTheDocument();
     expect(screen.getByLabelText('Modelo Cursor')).toHaveValue('auto');
+  });
+
+  it('mostra tokens usados por período (hoje/7 dias/30 dias) por provedor (ADR-017)', () => {
+    render(
+      <LlmTokensCard
+        s={makeState({
+          llmUsage: {
+            periods: {
+              gemini: { today: { calls: 3, tokens: 1200 }, week: { calls: 10, tokens: 5000 }, month: { calls: 20, tokens: 9000 } },
+              claude: { today: { calls: 0, tokens: 0 }, week: { calls: 0, tokens: 0 }, month: { calls: 0, tokens: 0 } },
+              openai: { today: { calls: 0, tokens: 0 }, week: { calls: 0, tokens: 0 }, month: { calls: 0, tokens: 0 } },
+              ollama: { today: { calls: 0, tokens: 0 }, week: { calls: 0, tokens: 0 }, month: { calls: 0, tokens: 0 } }
+            },
+            cooldowns: []
+          }
+        })}
+      />
+    );
+    expect(screen.getByText('1200')).toBeInTheDocument();
+    expect(screen.getByText('5000')).toBeInTheDocument();
+    expect(screen.getByText('9000')).toBeInTheDocument();
+  });
+
+  it('mostra selo de "sem crédito" e botão de reset quando o provedor está em cooldown (ADR-017)', async () => {
+    const user = userEvent.setup();
+    const clearProviderCooldown = vi.fn();
+    render(
+      <LlmTokensCard
+        s={makeState({
+          llmUsage: {
+            periods: {
+              gemini: { today: { calls: 0, tokens: 0 }, week: { calls: 0, tokens: 0 }, month: { calls: 0, tokens: 0 } },
+              claude: { today: { calls: 0, tokens: 0 }, week: { calls: 0, tokens: 0 }, month: { calls: 0, tokens: 0 } },
+              openai: { today: { calls: 0, tokens: 0 }, week: { calls: 0, tokens: 0 }, month: { calls: 0, tokens: 0 } },
+              ollama: { today: { calls: 0, tokens: 0 }, week: { calls: 0, tokens: 0 }, month: { calls: 0, tokens: 0 } }
+            },
+            cooldowns: [{ provider: 'claude', until: '2026-08-28T23:59:00.000Z', reason: 'credit balance too low' }]
+          },
+          clearProviderCooldown
+        })}
+      />
+    );
+    expect(screen.getByText(/sem crédito até/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'resetar' }));
+    expect(clearProviderCooldown).toHaveBeenCalledWith('claude');
   });
 });

@@ -120,6 +120,20 @@ app.get('/api/llm/status', async (req, res) => {
 
 app.use('/api', authAttemptLimiter, authMiddleware);
 
+app.get('/api/llm/usage', (req, res) => {
+  const { llmUsage, providerCooldown } = require('./lib/llmUsage');
+  res.json({
+    periods: llmUsage.periods(),
+    cooldowns: providerCooldown.listActive()
+  });
+});
+
+app.post('/api/llm/cooldown/:provider/clear', (req, res) => {
+  const { providerCooldown } = require('./lib/llmUsage');
+  providerCooldown.clear(req.params.provider);
+  res.json({ success: true });
+});
+
 app.get('/api/preferences', (req, res) => {
   ensureDefaultPreferences();
   res.json({

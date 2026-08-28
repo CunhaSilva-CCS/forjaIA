@@ -38,30 +38,75 @@ async function withRetries(fn, { retries = config.llmRetries, signal } = {}) {
   throw lastError;
 }
 
+function availableCloudProviders() {
+  const providers = [];
+  if (config.geminiApiKey) providers.push('gemini');
+  if (config.anthropicApiKey) providers.push('claude');
+  if (config.openaiApiKey) providers.push('openai');
+  return providers;
+}
+
+/**
+ * Entre os provedores cloud configurados (excluindo os em `exclude` e os em cooldown por falta
+ * de crédito, ver ADR-017), escolhe o que usou MENOS tokens HOJE — uso real medido via
+ * lib/llmUsage.js, nunca estimativa. Sem nenhum disponível, retorna null (quem chama decide o
+ * fallback, geralmente Ollama). Só uma opção disponível → devolve ela sem consultar uso.
+ */
+function pickBalancedProvider({ exclude = [] } = {}) {
+  let providerCooldown;
+  let llmUsage;
+  try {
+    ({ providerCooldown, llmUsage } = require('./llmUsage'));
+  } catch {
+    return null;
+  }
+  const excludeSet = new Set(exclude);
+  const candidates = availableCloudProviders().filter((p) => !excludeSet.has(p) && !providerCooldown.get(p));
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const usage = llmUsage.summarySince(startOfToday.toISOString());
+  return [...candidates].sort((a, b) => (usage[a]?.tokens || 0) - (usage[b]?.tokens || 0))[0];
+}
+
 function resolveProvider(runConfig = {}) {
   if (runConfig.llmProvider) return String(runConfig.llmProvider).toLowerCase();
   if (runConfig.useOllama) return 'ollama';
-  return config.defaultLlmProvider || 'ollama';
+  const fallback = config.defaultLlmProvider || 'ollama';
+  // Sem escolha explícita do usuário, ForjaIA evita proativamente um provedor que já sabe estar
+  // sem crédito (ADR-017) — uma escolha explícita (runConfig.llmProvider acima) nunca é
+  // sobrescrita silenciosamente, só o default automático.
+  if (fallback !== 'ollama' && fallback !== 'cursor') {
+    try {
+      const { providerCooldown } = require('./llmUsage');
+      if (providerCooldown.get(fallback)) {
+        const balanced = pickBalancedProvider({ exclude: [fallback] });
+        if (balanced) return balanced;
+      }
+    } catch {
+      // DB pode não estar pronta em contexto de teste isolado — segue com o default normal
+    }
+  }
+  return fallback;
 }
 
 /**
  * Provedor pra revisão sênior (ver ADR-011): deliberadamente DIFERENTE do que gerou o código
- * nesta run, quando houver alternativa configurada. O objetivo não é custo — é reduzir erro
- * correlacionado: se o mesmo modelo que escreveu o código também é o único revisor, ele carrega
- * os mesmos pontos cegos e tende a aprovar os próprios erros sistemáticos. Cursor nunca entra
- * aqui (por design, só roda quando escolhido explicitamente — ver ADR-007). Cai pro mesmo
- * provedor da run se não houver alternativa cloud configurada (Ollama sozinho, por exemplo) —
- * degrada de volta pro comportamento anterior, nunca quebra.
+ * nesta run, quando houver alternativa configurada. O objetivo original não é custo — é reduzir
+ * erro correlacionado. A partir do ADR-017, entre as alternativas disponíveis (não em cooldown),
+ * prioriza a de MENOR uso hoje — soma os dois objetivos: diversidade E uso equilibrado de
+ * créditos entre provedores, sem nenhum dado de saldo real (que nenhum provedor expõe). Cursor
+ * nunca entra aqui (por design, só roda quando escolhido explicitamente — ver ADR-007). Cai pro
+ * mesmo provedor da run se não houver alternativa cloud configurada — degrada de volta pro
+ * comportamento anterior, nunca quebra.
  */
 function resolveReviewProvider(runConfig = {}) {
   const primary = resolveProvider(runConfig);
-  const available = [];
-  if (config.geminiApiKey) available.push('gemini');
-  if (config.anthropicApiKey) available.push('claude');
-  if (config.openaiApiKey) available.push('openai');
-  available.push('ollama');
-  const alternate = available.find((p) => p !== primary);
-  return alternate || primary;
+  const balanced = pickBalancedProvider({ exclude: [primary] });
+  if (balanced) return balanced;
+  return primary === 'ollama' ? primary : 'ollama';
 }
 
 /** Modelos Gemini descontinuados → sucessor recomendado pela API. */
@@ -572,7 +617,18 @@ function fallbackProviders(primary, { billingIssue = false } = {}) {
     if (config.openaiApiKey) push('openai');
     if (config.anthropicApiKey) push('claude');
   }
-  return order;
+
+  // Joga provedores em cooldown (ADR-017) pro fim da fila de ALTERNATIVAS — ainda tentáveis
+  // como último recurso, só não prioritários. O primário nunca muda de posição aqui (quem
+  // chama decide o que fazer com ele; isso só ordena o resto).
+  const [first, ...rest] = order;
+  try {
+    const { providerCooldown } = require('./llmUsage');
+    rest.sort((a, b) => (providerCooldown.get(a) ? 1 : 0) - (providerCooldown.get(b) ? 1 : 0));
+  } catch {
+    // segue sem reordenar
+  }
+  return [first, ...rest];
 }
 
 async function generateJson({ system, user, runConfig = {}, signal, tier = 'premium' }) {
@@ -600,9 +656,32 @@ async function generateJson({ system, user, runConfig = {}, signal, tier = 'prem
               `[llm] Fallback ${primary} → ${provider}: ${result.fallbackReason}`
             );
           }
+          if (result.tokens) {
+            try {
+              require('./llmUsage').llmUsage.record({
+                provider: result.provider,
+                model: result.model,
+                tier,
+                tokens: result.tokens
+              });
+            } catch {
+              // telemetria de uso nunca derruba a run
+            }
+          }
           return result;
         } catch (err) {
           lastError = err;
+          const billingIssue = isBillingError(err);
+          if (billingIssue) {
+            // Reage à falta de crédito marcando o provedor em cooldown (ADR-017) — próximas
+            // runs param de escolhê-lo automaticamente até o cooldown expirar ou o usuário
+            // confirmar manualmente que recarregou (UI de uso/crédito).
+            try {
+              require('./llmUsage').providerCooldown.set(provider, { reason: err.message });
+            } catch {
+              // segue sem cooldown se a telemetria não estiver disponível
+            }
+          }
           if (provider === primary && !isRecoverableLlmError(err)) {
             throw err;
           }
@@ -610,9 +689,7 @@ async function generateJson({ system, user, runConfig = {}, signal, tier = 'prem
           // muda a ordem (outro cloud antes do Ollama local, ver fallbackProviders).
           if (!expanded) {
             expanded = true;
-            const rest = fallbackProviders(primary, { billingIssue: isBillingError(err) }).filter(
-              (p) => p !== primary
-            );
+            const rest = fallbackProviders(primary, { billingIssue }).filter((p) => p !== primary);
             chain = chain.concat(rest);
           }
           continue;
@@ -807,6 +884,8 @@ module.exports = {
   resolveTierModel,
   fallbackProviders,
   isBillingError,
+  pickBalancedProvider,
+  availableCloudProviders,
   providerStatus,
   probeLlm
 };

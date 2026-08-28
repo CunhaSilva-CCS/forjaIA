@@ -18,3 +18,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-014 — Suporte a projetos mobile Expo/React Native (QA nativo + deploy no Simulador)](014-mobile-expo-support.md)
 - [ADR-015 — Fallback prioriza outro provedor cloud quando a falha é de billing](015-billing-aware-fallback.md)
 - [ADR-016 — userFix.js manda só os arquivos relevantes, não o codebase inteiro](016-userfix-selective-files.md)
+- [ADR-017 — Uso equilibrado entre provedores via dado real (não saldo de crédito)](017-usage-credit-ui.md)
