@@ -77,4 +77,18 @@ describe('AppHeader', () => {
     );
     expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
   });
+
+  it('mostra o provedor e o modelo ativos na faixa de motor', () => {
+    render(<AppHeader s={makeState({ llmProvider: 'ollama', ollamaModel: 'qwen2.5-coder:7b' })} />);
+    expect(screen.getByText('Ollama')).toBeInTheDocument();
+    expect(screen.getByText('qwen2.5-coder:7b')).toBeInTheDocument();
+  });
+
+  it('pulsa a faixa de motor só quando há um agente ativo', () => {
+    const { container, rerender } = render(<AppHeader s={makeState({ activeAgent: null })} />);
+    expect(container.querySelector('.engine-pulse.live')).not.toBeInTheDocument();
+
+    rerender(<AppHeader s={makeState({ activeAgent: 'coder' })} />);
+    expect(container.querySelector('.engine-pulse.live')).toBeInTheDocument();
+  });
 });

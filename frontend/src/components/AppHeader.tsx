@@ -1,6 +1,14 @@
 import { Flame, RefreshCw, Square } from 'lucide-react';
 import type { AppState } from '../hooks/useForjaApp';
 
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini: 'Gemini',
+  claude: 'Claude',
+  openai: 'OpenAI',
+  ollama: 'Ollama',
+  cursor: 'Cursor'
+};
+
 export function AppHeader({ s }: { s: AppState }) {
   const activeModelName =
     s.llmProvider === 'ollama'
@@ -9,13 +17,20 @@ export function AppHeader({ s }: { s: AppState }) {
         ? s.openaiModel
         : s.llmProvider === 'claude'
           ? s.claudeModel
-          : s.geminiModel || 'gemini-3.6-flash';
+          : s.llmProvider === 'cursor'
+            ? s.cursorModel
+            : s.geminiModel || 'gemini-3.6-flash';
   const modelOk = s.llmProbe?.ok === true;
+  const modelBad = Boolean(s.llmProbe && !s.llmProbe.ok);
+  const engineWorking = Boolean(s.activeAgent);
   const apiLabel = `API ${s.serviceStatus?.online ? 'online' : 'off'}${s.serviceStatus?.port ? ` :${s.serviceStatus.port}` : ''}`;
   const dockerLabel = `Docker ${s.dockerActive ? 'ok' : 'off'}`;
   const ollamaLabel = `Ollama ${s.ollamaOnline ? 'ok' : 'off'}`;
   const cursorLabel = `Cursor ${s.cursorOnline ? 'ok' : 'off'}`;
   const wsLabel = `WebSocket ${s.wsConnected ? 'online' : 'offline'}`;
+  const engineTitle = `${PROVIDER_LABELS[s.llmProvider] || s.llmProvider} · ${s.llmProbe?.model || activeModelName}${
+    engineWorking ? ' — em uso agora' : ''
+  }${s.llmProbe?.detail ? `\n${s.llmProbe.detail}` : ''}`;
 
   return (
     <header className="forge-panel app-header">
@@ -41,13 +56,12 @@ export function AppHeader({ s }: { s: AppState }) {
           <span className={`infra-dot ${s.cursorOnline ? 'on' : ''}`} title={cursorLabel} aria-label={cursorLabel} />
           <span className={`infra-dot ${s.wsConnected ? 'on' : ''}`} title={wsLabel} aria-label={wsLabel} />
         </div>
-        <span
-          className={`status-badge model-status-badge ${modelOk ? 'ok' : s.llmProbe && !s.llmProbe.ok ? 'bad' : ''}`}
-          title={s.llmProbe?.detail || 'Verificando modelo…'}
-        >
-          <span className={`status-indicator ${modelOk ? 'active' : ''}`} />
-          {s.llmProbeLoading ? 'LLM…' : s.llmProbe?.model || activeModelName}
-        </span>
+        <div className="engine-strip" title={engineTitle} role="status" aria-label="Motor de IA em uso">
+          <span className={`engine-pulse ${engineWorking ? 'live' : ''}`} />
+          <span className="engine-provider">{PROVIDER_LABELS[s.llmProvider] || s.llmProvider}</span>
+          <span className="engine-model">{s.llmProbeLoading ? 'verificando…' : s.llmProbe?.model || activeModelName}</span>
+          <span className={`engine-health ${modelOk ? 'ok' : modelBad ? 'bad' : ''}`} />
+        </div>
         <div className="service-header-actions" role="group" aria-label="Controle do serviço">
           <button
             type="button"

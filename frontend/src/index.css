@@ -12,27 +12,36 @@
   border: 0;
 }
 
+/*
+ * Sistema de cor: dualidade forja — ember (fogo/atividade, usado com moderação, só onde
+ * algo está em curso ou pede atenção) vs. aço/grafite (estrutura fria, a maior parte da UI
+ * em repouso). Nomes de propriedade mantidos (--bg, --panel, --ember...) para compatibilidade
+ * com todo o CSS existente; os valores é que mudam para a paleta nova:
+ * obsidian #0b0a09 (fundo) · iron #17140f (painel) · ash #f2ece3 (texto) · ember #e8763a
+ * (acento quente) · forge-green #34a869 (aprovado) · alloy-red #dd4f47 (falha) ·
+ * temper-gold #d9a441 (aviso).
+ */
 :root {
-  --bg: #12100e;
-  --bg-raised: #1a1714;
-  --bg-sunken: #0c0b0a;
-  --panel: #1e1a16;
-  --panel-edge: #2a241e;
-  --ink: #f3ebe1;
-  --ink-soft: #c9bdb0;
-  --muted: #8a7f74;
-  --ember: #e07a3d;
-  --ember-deep: #c45c26;
-  --ember-rgb: 224, 122, 61;
-  --ember-glow: rgba(var(--ember-rgb), 0.28);
+  --bg: #0b0a09;
+  --bg-raised: #18140f;
+  --bg-sunken: #060605;
+  --panel: #17140f;
+  --panel-edge: #2b241b;
+  --ink: #f2ece3;
+  --ink-soft: #c7bcae;
+  --muted: #8f8578;
+  --ember: #e8763a;
+  --ember-deep: #c15a24;
+  --ember-rgb: 232, 118, 58;
+  --ember-glow: rgba(var(--ember-rgb), 0.22);
   --steel: #9aa3ad;
-  --success: #3d9a6a;
-  --success-light: #62c08d;
-  --success-rgb: 61, 154, 106;
-  --warning: #d4a017;
-  --warning-rgb: 212, 160, 23;
-  --danger: #d64545;
-  --danger-rgb: 214, 69, 69;
+  --success: #34a869;
+  --success-light: #5cc98d;
+  --success-rgb: 52, 168, 105;
+  --warning: #d9a441;
+  --warning-rgb: 217, 164, 65;
+  --danger: #dd4f47;
+  --danger-rgb: 221, 79, 71;
   --radius: 10px;
   --font-display: 'Syne', sans-serif;
   --font-body: 'IBM Plex Sans', sans-serif;
@@ -55,9 +64,8 @@ body,
 
 body {
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(var(--ember-rgb), 0.12), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(196, 92, 38, 0.08), transparent 50%),
-    linear-gradient(180deg, #161310 0%, var(--bg) 40%, #0f0d0b 100%);
+    radial-gradient(ellipse 65% 40% at 50% -14%, rgba(var(--ember-rgb), 0.07), transparent 62%),
+    var(--bg);
   color: var(--ink);
   font-family: var(--font-body);
   overflow: hidden;
@@ -92,7 +100,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--panel-edge);
   border-radius: var(--radius);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .forge-panel {
@@ -107,9 +115,8 @@ header.app-header.forge-panel::before {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--ember), transparent);
-  opacity: 0.55;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--ember-rgb), 0.5), transparent);
   border-radius: var(--radius) var(--radius) 0 0;
   pointer-events: none;
 }
@@ -638,84 +645,148 @@ a:focus-visible {
   font-size: 0.82rem;
 }
 
-.agents-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
+/*
+ * Trilho de forja — elemento-assinatura do painel: cada etapa do pipeline é um nó ligado
+ * ao seguinte por um conector vertical. Nó preenche a cor do resultado (verde aprovado,
+ * vermelho falhou); o conector herda a cor da etapa de onde ele "sai", como o calor
+ * passando adiante na linha. É a peça mais característica do produto (o pipeline real de
+ * agentes com aprovações e retries) — não decoração.
+ */
+.pipeline-rail {
+  display: flex;
+  flex-direction: column;
 }
 
-.agents-list.agents-create {
-  grid-template-columns: 1fr 1fr;
+.rail-step {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
 }
 
-.agents-list.agents-ops {
-  grid-template-columns: 1fr 1fr;
-}
-
-.agent-chip {
+.rail-node-col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 1px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--panel-edge);
-  background: var(--bg-sunken);
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--muted);
-  min-width: 0;
+  width: 12px;
+  flex-shrink: 0;
+  padding-top: 4px;
 }
 
-.agent-chip > span {
+.rail-node {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-sunken);
+  border: 2px solid var(--panel-edge);
+  flex-shrink: 0;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.rail-connector {
+  width: 2px;
+  flex: 1;
+  min-height: 14px;
+  background: var(--panel-edge);
+  margin-top: 2px;
+  transition: background-color 0.2s ease;
+}
+
+.rail-step:last-child .rail-connector {
+  display: none;
+}
+
+.rail-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 13px;
+}
+
+.rail-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chip-meta {
+.rail-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.rail-meta-item {
   font-family: var(--font-mono);
-  font-size: 0.56rem;
+  font-size: 0.6rem;
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--muted);
-  opacity: 0.75;
 }
 
-.chip-meta-count {
+.rail-meta-item.count {
   color: var(--ember);
-  opacity: 1;
+  font-weight: 700;
 }
 
-.agent-chip.active {
+.rail-step.success .rail-node {
+  background: var(--success);
+  border-color: var(--success);
+}
+.rail-step.success .rail-connector {
+  background: var(--success);
+  opacity: 0.6;
+}
+.rail-step.success .rail-label {
+  color: var(--ink-soft);
+}
+
+.rail-step.failed .rail-node {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.rail-step.failed .rail-label {
+  color: var(--danger);
+}
+
+.rail-step.active .rail-node {
   border-color: var(--ember);
-  box-shadow: inset 0 0 0 1px rgba(var(--ember-rgb), 0.25);
+  background: var(--bg-sunken);
+  animation: rail-pulse 1.4s ease-in-out infinite;
+}
+.rail-step.active .rail-label {
   color: var(--ink);
 }
 
-.agent-chip.success {
-  border-color: rgba(var(--success-rgb), 0.55);
-}
-
-.agent-chip.failed {
-  border-color: rgba(var(--danger-rgb), 0.55);
-}
-
-.agent-chip.skipped {
-  opacity: 0.55;
+.rail-step.skipped .rail-node {
   border-style: dashed;
-  color: var(--muted);
+  opacity: 0.5;
+}
+.rail-step.skipped .rail-label {
+  opacity: 0.5;
 }
 
-.agent-chip.track-inactive {
-  opacity: 0.4;
+.rail-step.track-inactive {
+  opacity: 0.35;
 }
 
-.pipeline-track {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+@keyframes rail-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px var(--ember-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 5px var(--ember-glow), 0 0 10px var(--ember-glow);
+  }
+}
+
+.pipeline-group + .pipeline-group {
+  margin-top: 10px;
 }
 
 .pipeline-group-label {
@@ -733,20 +804,6 @@ a:focus-visible {
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
-}
-
-.agent-chip.pulse {
-  animation: ember-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes ember-pulse {
-  0%,
-  100% {
-    box-shadow: inset 0 0 0 1px rgba(var(--ember-rgb), 0.2);
-  }
-  50% {
-    box-shadow: inset 0 0 0 1px rgba(var(--ember-rgb), 0.55), 0 0 12px var(--ember-glow);
-  }
 }
 
 .agent-state {
@@ -1538,8 +1595,132 @@ a:focus-visible {
   border-color: rgba(var(--ember-rgb), 0.4);
 }
 
+/* Testes: verde/vermelho explícito por linha — não só a forma do ícone. */
+.tests-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.test-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px 6px 9px;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  background: var(--bg-sunken);
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
+.test-status-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.test-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.test-row.passed {
+  border-left-color: var(--success);
+}
+.test-row.passed .test-status-icon {
+  color: var(--success);
+}
+
+.test-row.failed {
+  border-left-color: var(--danger);
+}
+.test-row.failed .test-status-icon {
+  color: var(--danger);
+}
+.test-row.failed .test-name {
+  color: var(--ink);
+}
+
+.test-error {
+  margin: -2px 0 2px 25px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1.4;
+  color: var(--danger);
+  opacity: 0.85;
+  word-break: break-word;
+}
+
+/* Faixa "motor" do cabeçalho — provedor + modelo em uso agora, sempre visível, com pulso
+ * quando uma etapa está ativamente chamando o LLM. */
+.engine-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--panel-edge);
+  background: var(--bg-sunken);
+}
+
+.engine-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.engine-pulse.live {
+  background: var(--ember);
+  opacity: 1;
+  animation: rail-pulse 1.2s ease-in-out infinite;
+}
+
+.engine-provider {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+}
+
+.engine-model {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-health {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.engine-health.ok {
+  background: var(--success);
+  box-shadow: 0 0 0 2px rgba(var(--success-rgb), 0.22);
+}
+
+.engine-health.bad {
+  background: var(--danger);
+  box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.22);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .agent-chip.pulse,
+  .rail-step.active .rail-node,
+  .engine-pulse.live,
   .deploy-idle-glow,
   * {
     animation: none !important;
