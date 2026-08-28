@@ -10,4 +10,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-006 — Watchdog exige falhas seguidas antes de reiniciar](006-watchdog-unhealthy-threshold.md)
 - [ADR-007 — Cursor Agent como provedor de LLM opt-in, isolado em cwd descartável](007-cursor-agent-provider.md)
 - [ADR-008 — Prompt caching para Claude; sem mudança para os demais provedores](008-prompt-caching-claude.md)
-- [ADR-009 — Isolamento de DB por arquivo de teste + concorrência serializada no CI](009-ci-test-isolation-sigsegv.md)
+- [ADR-009 — CI no Node 22 (compatível com better-sqlite3 ≥13) + isolamento de DB por arquivo de teste](009-ci-test-isolation-sigsegv.md)

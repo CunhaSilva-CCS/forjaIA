@@ -1,4 +1,4 @@
-# ADR-009 — Isolamento de DB por arquivo de teste + concorrência serializada no CI
+# ADR-009 — CI no Node 22 (compatível com better-sqlite3 ≥13) + isolamento de DB por arquivo de teste
 
 **Status:** Aceito
 
@@ -6,54 +6,58 @@
 
 Todo run de CI (`gh run list`) falhava — incluindo runs anteriores a qualquer mudança desta sessão,
 remontando ao primeiro commit do repositório. A causa aparente variava a cada run: um arquivo de
-teste diferente crashava com `signal: 'SIGSEGV'` (`production.test.js`, depois `claudeCache.test.js`
-e `controlPlane.test.js` juntos no mesmo run). Nenhum desses crashes reproduzia localmente, mesmo
-rodando a suíte inteira ou o arquivo isolado repetidas vezes.
+teste diferente crashava com `signal: 'SIGSEGV'` (`production.test.js` num run antigo;
+`claudeCache.test.js` + `controlPlane.test.js` juntos num run mais recente). Nenhum desses crashes
+reproduzia localmente, mesmo rodando a suíte inteira ou o arquivo isolado repetidas vezes.
 
-Investigação (`gh run view --log-failed` em dois runs distintos, mais leitura de
-`backend/lib/config.js` e de todos os `backend/test/*.test.js`) encontrou a causa raiz:
+**Causa raiz real**: `better-sqlite3@13.0.3` (dependência de `backend/lib/db.js`) declara
+`"engines": { "node": ">=22" }` no seu `package.json`. O workflow fixava `node-version: '20'` em
+`actions/setup-node@v4`. `npm ci` não bloqueia por mismatch de `engines` por padrão — instala
+silenciosamente mesmo assim — mas o binário nativo do addon, compilado para a N-API esperada pelo
+Node ≥22, crasha com `SIGSEGV` ao ser carregado/usado sob Node 20. Isso explica cada sintoma
+observado:
+- Só arquivos que efetivamente abrem o banco (`new Database(...)` via `lib/db.js`) crasham — nunca
+  os que não tocam nele (`dockerBuild.test.js`, `envScan.test.js`, etc.).
+- Nunca reproduz localmente: a máquina de desenvolvimento roda Node 24 (`node --version`), acima do
+  mínimo exigido — o binário nativo carrega normalmente.
+- É determinístico por natureza (incompatibilidade de ABI), não uma corrida — por isso "qual
+  arquivo crasha" parecia variar: depende só de qual arquivo, entre os que tocam o banco, roda
+  primeiro/é o único naquele run, não de uma disputa por recurso.
+- É pré-existente: a dependência já exigia Node ≥22 antes de qualquer commit desta sessão.
 
-- `backend/lib/config.js` resolve `dbPath` para um caminho fixo (`data/forja.db`) sempre que
-  `FORJA_DB_PATH` não está definido no ambiente.
-- `node --test test/*.test.js` roda cada arquivo de teste em processo separado, **em paralelo**,
-  por padrão (`--test-concurrency` = nº de CPUs do runner).
-- 7 dos 13 arquivos de teste não definiam `FORJA_DB_PATH`, então todos caíam no mesmo arquivo
-  SQLite fixo. Múltiplos processos do runner da GitHub Actions abrindo/escrevendo o mesmo arquivo
-  `better-sqlite3` (módulo nativo) ao mesmo tempo é uma condição de corrida clássica para corrupção
-  de memória nativa — que se manifesta como `SIGSEGV`, não como uma exceção JS capturável.
-
-Isso explica todos os sintomas observados: qual arquivo falha varia (depende de qual dupla de
-processos colide no timing exato), não reproduz localmente (a corrida depende da concorrência real
-de CPU/I/O do runner Linux, diferente da máquina de desenvolvimento), e é pré-existente (a lacuna
-estrutural já existia antes de qualquer commit desta sessão — só ganhou mais um arquivo na lista
-dos não-isolados).
-
-O aviso de depreciação Node 20→24 visível nos logs do CI é um *red herring*: refere-se ao runtime
+O aviso de depreciação Node 20→24 visível nos logs do CI é um *red herring* — refere-se ao runtime
 interno usado para executar as próprias Actions (`checkout@v4`, `setup-node@v4`), não ao
-`node-version: '20'` já fixado em `.github/workflows/ci.yml` para instalar dependências e rodar
-`npm test`.
+`node-version` usado para instalar dependências e rodar `npm test`.
+
+Uma primeira hipótese (concorrência entre processos de teste escrevendo no mesmo arquivo SQLite
+fixo) foi investigada e parcialmente corrigida antes desta causa raiz ser confirmada — 7 dos 13
+arquivos de teste não isolavam `FORJA_DB_PATH` e caíam no caminho fixo default. Essa lacuna era
+real e vale manter corrigida como higiene de teste (evita comportamento não-determinístico entre
+arquivos), mas **não era** a causa do SIGSEGV: o crash acontecia mesmo com um único arquivo rodando
+sozinho, sem nenhuma concorrência (confirmado num run com `--test-concurrency=1` já aplicado, onde
+só `claudeCache.test.js` — que toca o banco — continuou falhando).
 
 ## Decisão
 
-Duas mudanças, complementares:
-
-1. **Isolamento por arquivo** (correção da causa raiz): os 7 arquivos de teste que não definiam
+1. **Correção da causa raiz**: `.github/workflows/ci.yml` sobe `node-version` de `'20'` para
+   `'22'`, satisfazendo o `engines` de `better-sqlite3@13.0.3`.
+2. **Isolamento por arquivo** (higiene de teste, mantido): os 7 arquivos de teste que não definiam
    `FORJA_DB_PATH` (`claudeCache`, `chaos`, `dockerBuild`, `envScan`, `dockerChaos`,
    `healerFileSelection`, `llmCursor`) passam a gerar um caminho único em `os.tmpdir()` no topo do
-   arquivo, seguindo o mesmo padrão já usado nos outros 6 (`controlPlane`, `httpIntegration`,
-   `phase1Squad`, `fileVersionsPurge`, `production`, `orchestratorStages`).
-2. **Concorrência serializada no CI** (mitigação estrutural): `backend/package.json`'s `test` script
-   passa a incluir `--test-concurrency=1`. Mesmo com todo arquivo isolado, roda em paralelo
-   continua sendo uma superfície de risco (novo arquivo de teste esquecendo o isolamento, ou
-   qualquer outro recurso compartilhado por padrão fixo) — serializar no CI custa alguns segundos a
-   mais de execução em troca de eliminar essa classe inteira de corrida em produção de CI.
+   arquivo, seguindo o padrão já usado nos outros 6 (`controlPlane`, `httpIntegration`,
+   `phase1Squad`, `fileVersionsPurge`, `production`, `orchestratorStages`) — evita que testes
+   futuros compartilhem estado de banco por acidente.
+3. **Concorrência serializada no CI** (mantida como cinto de segurança): `backend/package.json`'s
+   `test` script inclui `--test-concurrency=1`. Não foi a correção do SIGSEGV, mas remove uma
+   classe de race condition (múltiplos processos tocando o mesmo recurso por falta de isolamento
+   futuro) que continuaria sendo um risco mesmo depois do fix de versão do Node.
 
 ## Consequências
 
-- CI fica um pouco mais lento (execução serializada em vez de paralela) — aceitável frente ao custo
-  de builds vermelhas de forma intermitente e não-diagnosticável.
-- Localmente `npm test` também passa a rodar serializado (mesmo script) — sem impacto perceptível
-  dado o tamanho atual da suíte (105 testes, ~5s).
+- CI passa a exigir Node ≥22 para instalar/rodar; qualquer dependência nova deve ser checada contra
+  essa versão mínima.
+- CI fica um pouco mais lento (execução de teste serializada em vez de paralela) — aceitável frente
+  ao custo de builds vermelhas intermitentes e difíceis de diagnosticar.
 - Qualquer novo arquivo de teste que precise de estado real (DB, porta) deve seguir o padrão
   `FORJA_DB_PATH`/`FORJA_WORKSPACE_ROOT`/`PORT` únicos por arquivo — isolamento por padrão, não por
   exceção.
