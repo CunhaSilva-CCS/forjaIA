@@ -116,3 +116,53 @@ describe('healer.execute — escalada de provedor na última tentativa (ADR-013)
     assert.equal(calledClaude, false, 'não deveria ter insistido no Claude na última tentativa');
   });
 });
+
+describe('healer.execute — ignora item sem path válido em vez de quebrar a cura inteira', () => {
+  function fresh(mod) {
+    delete require.cache[require.resolve(mod)];
+    return require(mod);
+  }
+
+  it('achado real ao validar o secPass: um arquivo sem path derrubava path.basename(undefined)', async () => {
+    process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'sk-ant-test-key';
+    const healer = fresh('../agent/healer');
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        content: [
+          {
+            type: 'text',
+            // Segundo item sem "path" — é exatamente o que o Ollama devolveu na validação real.
+            text: '{"files":[{"path":"a.js","content":"fixed"},{"content":"sem path nenhum"}]}'
+          }
+        ],
+        usage: {}
+      })
+    });
+
+    const orchestrator = {
+      throwIfAborted: () => {},
+      log: () => {},
+      recordTokens: () => {},
+      getSignal: () => undefined
+    };
+
+    let result;
+    try {
+      result = await healer.execute(
+        [{ path: 'a.js', content: 'broken' }],
+        { tests: [], passed: false },
+        { issues: [], passed: true },
+        { llmProvider: 'claude' },
+        orchestrator
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result.length, 1);
+    assert.equal(result[0].content, 'fixed');
+  });
+});

@@ -35,10 +35,59 @@ module.exports = {
     await deployRuntime.stopDeploy();
   },
 
+  /** Projeto mobile Expo/RN: sem servidor HTTP pra fazer container/porta — o "deploy" real é
+   * compilar e instalar no Simulador de iPhone (ver ADR-014). */
+  deployMobile: async (files, runConfig, orchestrator) => {
+    const isValidate = runConfig.mode === 'validate';
+    const relativeTarget =
+      runConfig.targetPath || (isValidate ? runConfig.sourcePath : null) || 'deployed';
+    const deployDir = resolveWithinWorkspace(relativeTarget);
+    orchestrator.log('devops', `Projeto mobile: implantando no Simulador a partir de ${relativeTarget}.`, 'info');
+
+    const writeSafely = (file) => {
+      if (!file?.path || typeof file.content !== 'string') return;
+      const fullPath = path.join(deployDir, file.path);
+      const rel = path.relative(deployDir, fullPath);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        throw new Error(`Recusando gravar fora do diretório de deploy: ${file.path}`);
+      }
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, file.content, 'utf8');
+    };
+
+    if (!isValidate) {
+      if (fs.existsSync(deployDir)) safeRmDir(deployDir);
+      fs.mkdirSync(deployDir, { recursive: true });
+      for (const file of files) writeSafely(file);
+    } else if (!fs.existsSync(deployDir)) {
+      throw new Error(`Projeto a validar não encontrado: ${relativeTarget}`);
+    } else if (Array.isArray(files) && files.length) {
+      // Sincroniza só arquivos curados/modificados no projeto já existente — não reescreve tudo
+      // (evita sobrescrever node_modules/config do projeto real do usuário sem necessidade).
+      for (const file of files) writeSafely(file);
+    }
+
+    const { deployToSimulator } = require('../lib/mobileDeploy');
+    const result = await deployToSimulator({ projectDir: deployDir, orchestrator });
+
+    return {
+      url: result.url,
+      path: relativeTarget,
+      runtime: result.type,
+      simulatorName: result.simulatorName,
+      simulatorUdid: result.simulatorUdid
+    };
+  },
+
   deploy: async (files, runConfig, orchestrator) => {
     const { announceThinking, thinkAsSenior } = require('../lib/seniorEngineer');
     const { defaultDockerfile, defaultDockerignore, defaultEnvExample } = require('../lib/productionChecklist');
     announceThinking(orchestrator, 'devops');
+
+    const { detectProjectType } = require('../lib/projectType');
+    if (detectProjectType(files) === 'mobile-expo') {
+      return module.exports.deployMobile(files, runConfig, orchestrator);
+    }
 
     const isValidate = runConfig.mode === 'validate';
     const relativeTarget =

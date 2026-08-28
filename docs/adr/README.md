@@ -15,3 +15,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-011 — Diversidade de provedor na revisão sênior + scanner determinístico de segredos](011-review-diversity-and-secret-scan.md)
 - [ADR-012 — Instrumentação de confiabilidade medida por run](012-reliability-instrumentation.md)
 - [ADR-013 — Card de confiabilidade na UI + escalada de provedor na última cura](013-reliability-card-and-healer-escalation.md)
+- [ADR-014 — Suporte a projetos mobile Expo/React Native (QA nativo + deploy no Simulador)](014-mobile-expo-support.md)

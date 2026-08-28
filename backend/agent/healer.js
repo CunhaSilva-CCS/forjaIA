@@ -134,11 +134,25 @@ Reescreva os arquivos corrigindo TODOS os problemas relatados, priorizando recom
       }
       if (!result.data?.files?.length) throw new Error('O Curador não retornou arquivos');
 
+      // Achado ao validar o secPass (projeto real): o LLM às vezes devolve um item sem "path"
+      // válido — sem filtrar, isso vira chave undefined no Map e quebra path.basename() mais
+      // abaixo com "path argument must be of type string", derrubando a cura inteira por causa
+      // de UM item ruim no meio de N corretos.
+      const validFiles = result.data.files.filter((f) => f && typeof f.path === 'string' && f.path.trim());
+      if (validFiles.length < result.data.files.length) {
+        orchestrator.log(
+          'healer',
+          `${result.data.files.length - validFiles.length} arquivo(s) retornado(s) sem path válido, ignorado(s).`,
+          'warning'
+        );
+      }
+      if (!validFiles.length) throw new Error('O Curador não retornou arquivos com path válido');
+
       orchestrator.log('healer', `Código curado via ${result.provider}.`, 'success');
       // O LLM pode decidir criar arquivo(s) novo(s) (ex.: middleware/rota de auth que não
       // existiam) — sem isso, a resposta era descartada e sobravam imports para arquivos
       // que nunca chegavam a existir no disco (build quebrava com "Cannot find module").
-      const healedByPath = new Map(result.data.files.map((f) => [f.path, f.content]));
+      const healedByPath = new Map(validFiles.map((f) => [f.path, f.content]));
       const patched = files.map((orig) => {
         if (!healedByPath.has(orig.path)) return orig;
         const content = healedByPath.get(orig.path);

@@ -344,6 +344,28 @@ describe('devopsLoadStage', () => {
       chaos.stop = originals.stop;
     }
   });
+
+  it('pula carga/caos e vai direto pro deploy em projeto mobile (ADR-014)', async () => {
+    const devops = fresh('../agent/devops');
+    const original = devops.prepareSandbox;
+    let sandboxCalled = false;
+    devops.prepareSandbox = async () => {
+      sandboxCalled = true;
+      return {};
+    };
+    try {
+      const stage = fresh('../agent/stages/devopsLoadStage');
+      const mobilePkg = JSON.stringify({ dependencies: { expo: '^57.0.0' } });
+      const orch = makeOrchestrator({
+        currentTask: { id: 'fake-run', files: [{ path: 'package.json', content: mobilePkg }], tests: [], securityIssues: [] }
+      });
+      await stage.run(orch, {});
+      assert.equal(sandboxCalled, false);
+      assert.equal(orch.pauseCalls[0].nextStage, 'deploy');
+    } finally {
+      devops.prepareSandbox = original;
+    }
+  });
 });
 
 describe('deployStage', () => {
@@ -388,6 +410,29 @@ describe('humanStage', () => {
       await stage.run(orch, {});
       assert.equal(orch.pauseCalls[0].nextStage, 'userFix');
       assert.match(orch.pauseCalls[0].message, /2 problema/);
+    } finally {
+      human.execute = original;
+    }
+  });
+
+  it('pula teste humano via HTTP e pausa em prodReady em projeto mobile (ADR-014)', async () => {
+    const human = fresh('../agent/human');
+    let humanExecuteCalled = false;
+    const original = human.execute;
+    human.execute = async () => {
+      humanExecuteCalled = true;
+      return { passed: true, issues: [] };
+    };
+    try {
+      const stage = fresh('../agent/stages/humanStage');
+      const mobilePkg = JSON.stringify({ dependencies: { expo: '^57.0.0' } });
+      const orch = makeOrchestrator({
+        currentTask: { id: 'fake-run', files: [{ path: 'package.json', content: mobilePkg }], tests: [], securityIssues: [] }
+      });
+      await stage.run(orch, {});
+      assert.equal(humanExecuteCalled, false);
+      assert.equal(orch.currentTask.humanReport.skipped, true);
+      assert.equal(orch.pauseCalls[0].nextStage, 'prodReady');
     } finally {
       human.execute = original;
     }

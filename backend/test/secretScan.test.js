@@ -51,4 +51,34 @@ describe('scanForHardcodedSecrets (ADR-011)', () => {
     const issues = scanForHardcodedSecrets(files);
     assert.equal(issues.filter((i) => i.id === 'SEC-TOKEN-ANTHROPIC').length, 1);
   });
+
+  // Regressão real: achado ao validar o secPass (app real de terceiro) — três falsos positivos
+  // concretos que a checagem heurística estava gerando.
+  it('não sinaliza fixture de teste com senha literal (arquivo __tests__/*.test.js)', () => {
+    const files = [{ path: '__tests__/account.test.js', content: 'const password = "Abc!2345";' }];
+    assert.deepEqual(scanForHardcodedSecrets(files), []);
+  });
+
+  it('não sinaliza constante cujo NOME contém "secret" mas o VALOR é uma frase (mensagem de erro)', () => {
+    const files = [
+      {
+        path: 'src/services/storage.js',
+        content: 'const VAULT_SECRET_REQUIRED =\n  "Nao e possivel salvar o cofre sem a senha de acesso.";'
+      }
+    ];
+    assert.deepEqual(scanForHardcodedSecrets(files), []);
+  });
+
+  it('não sinaliza "chave:valor" que na verdade é um ternário ou member access, não objeto literal', () => {
+    const files = [
+      { path: 'src/components/PasswordCard.js', content: '{showPassword ? item.password : "••••••••••"}' }
+    ];
+    assert.deepEqual(scanForHardcodedSecrets(files), []);
+  });
+
+  it('formato de token conhecido continua detectado mesmo em arquivo de teste', () => {
+    const files = [{ path: '__tests__/leak.test.js', content: 'const k = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890";' }];
+    const issues = scanForHardcodedSecrets(files);
+    assert.ok(issues.some((i) => i.id === 'SEC-TOKEN-ANTHROPIC'));
+  });
 });

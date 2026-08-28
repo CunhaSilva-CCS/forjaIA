@@ -27,9 +27,12 @@ function runStaticAnalysis(files) {
       }
     }
 
-    // 2. Procurar por segredos expostos (Hardcoded secrets)
+    // 2. Procurar por segredos expostos (Hardcoded secrets) — não em arquivo de teste, onde uma
+    // senha/token literal é fixture normal, não segredo real (ver ADR-011, achado ao validar
+    // secPass: "const password = ..." num __tests__/*.test.js batia aqui em falso).
+    const { isTestFile } = require('../lib/secretScan');
     const secretRegex = /(const|let|var)\s+(JWT_SECRET|SECRET|API_KEY|PASSWORD)\s*=\s*['"\`][a-zA-Z0-9_\-]{4,30}['"\`]/i;
-    if (secretRegex.test(code) && !code.includes('process.env')) {
+    if (!isTestFile(filePath) && secretRegex.test(code) && !code.includes('process.env')) {
       // Ignorar chaves que tenham fallback process.env
       if (!code.includes('process.env.JWT_SECRET')) {
         issues.push({
@@ -162,24 +165,34 @@ module.exports = {
     const { scanForHardcodedSecrets } = require('../lib/secretScan');
     const staticIssues = [...runStaticAnalysis(files), ...scanForHardcodedSecrets(files)];
 
-    // 2. Inicializar sandbox para rodar testes dinâmicos (DAST)
+    // 2. Inicializar sandbox para rodar testes dinâmicos (DAST) — não se aplica a projeto mobile
+    // (sem servidor HTTP pra atacar; ver ADR-014). Nem tenta, e não trata como achado/falha —
+    // "não se aplica" é diferente de "indisponível", não deveria travar o pipeline num loop de
+    // cura que não tem o que corrigir.
+    const { detectProjectType } = require('../lib/projectType');
+    const isMobile = detectProjectType(files) === 'mobile-expo';
+
     const sandboxRunner = require('../sandbox/runner');
     let dynamicIssues = [];
-    
+
     let dastFailed = false;
     let dastError = null;
-    try {
-      const sandboxInfo = await sandboxRunner.start(files, orchestrator);
-      dynamicIssues = await runActivePentesting(sandboxInfo.baseUrl, orchestrator);
-      await sandboxRunner.stop(orchestrator);
-    } catch (e) {
-      dastFailed = true;
-      dastError = e.message || String(e);
-      orchestrator.log('security', `Pentest dinâmico indisponível: ${dastError}`, 'warning');
+    if (isMobile) {
+      orchestrator.log('security', 'Projeto mobile — pentest dinâmico (DAST) não se aplica; sem servidor HTTP.', 'info');
+    } else {
       try {
+        const sandboxInfo = await sandboxRunner.start(files, orchestrator);
+        dynamicIssues = await runActivePentesting(sandboxInfo.baseUrl, orchestrator);
         await sandboxRunner.stop(orchestrator);
-      } catch {
-        // ignore cleanup errors
+      } catch (e) {
+        dastFailed = true;
+        dastError = e.message || String(e);
+        orchestrator.log('security', `Pentest dinâmico indisponível: ${dastError}`, 'warning');
+        try {
+          await sandboxRunner.stop(orchestrator);
+        } catch {
+          // ignore cleanup errors
+        }
       }
     }
 

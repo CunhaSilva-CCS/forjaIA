@@ -308,38 +308,70 @@ function detectSuite(files) {
   return 'crud';
 }
 
+/** Projeto mobile Expo/RN: sem HTTP pra testar, roda a suíte nativa do próprio projeto (ver
+ * ADR-014). Só funciona quando o projeto já existe em disco com node_modules instalado (modo
+ * "validar projeto existente") — no modo "forge" a partir do zero não há onde rodar o Jest ainda. */
+async function runMobileSuite(files, runConfig, orchestrator) {
+  const { detectProjectType } = require('../lib/projectType');
+  if (detectProjectType(files) !== 'mobile-expo') return null;
+
+  const isValidate = runConfig.mode === 'validate';
+  const relativeTarget = runConfig.targetPath || (isValidate ? runConfig.sourcePath : null);
+  if (!relativeTarget) {
+    orchestrator.log(
+      'qa',
+      'Projeto mobile detectado, mas sem caminho em disco (modo forge do zero) — QA nativo exige o projeto já instalado. Pulando QA.',
+      'warning'
+    );
+    return { passed: true, tests: [] };
+  }
+
+  const { resolveWithinWorkspace } = require('../lib/paths');
+  const { runNativeTestSuite } = require('../lib/mobileTest');
+  const projectDir = resolveWithinWorkspace(relativeTarget);
+  return runNativeTestSuite(projectDir, orchestrator);
+}
+
 module.exports = {
   execute: async (files, config, orchestrator) => {
     const { announceThinking, thinkAsSenior } = require('../lib/seniorEngineer');
     announceThinking(orchestrator, 'qa');
 
-    const sandboxRunner = require('../sandbox/runner');
-    let sandboxInfo;
-
-    try {
-      sandboxInfo = await sandboxRunner.start(files, orchestrator);
-    } catch (e) {
-      orchestrator.log('qa', `Erro ao inicializar sandbox para testes: ${e.message}`, 'error');
-      return {
-        passed: false,
-        tests: [{ name: 'Inicialização da Sandbox', passed: false, error: e.message }]
-      };
-    }
-
-    const suite = detectSuite(files);
+    const mobileReport = await runMobileSuite(files, config, orchestrator);
     let report;
-    if (suite === 'rag') {
-      orchestrator.log('qa', 'Executando suíte de testes RAG...', 'info');
-      report = await runRagTests(sandboxInfo.baseUrl, orchestrator);
-    } else if (suite === 'auth') {
-      orchestrator.log('qa', 'Executando suíte de testes de Autenticação/JWT...', 'info');
-      report = await runAuthTests(sandboxInfo.baseUrl, orchestrator);
-    } else {
-      orchestrator.log('qa', 'Executando suíte de testes CRUD de Tarefas...', 'info');
-      report = await runCrudTests(sandboxInfo.baseUrl, orchestrator);
-    }
+    let suite;
 
-    await sandboxRunner.stop(orchestrator);
+    if (mobileReport) {
+      report = mobileReport;
+      suite = 'mobile-expo';
+    } else {
+      const sandboxRunner = require('../sandbox/runner');
+      let sandboxInfo;
+
+      try {
+        sandboxInfo = await sandboxRunner.start(files, orchestrator);
+      } catch (e) {
+        orchestrator.log('qa', `Erro ao inicializar sandbox para testes: ${e.message}`, 'error');
+        return {
+          passed: false,
+          tests: [{ name: 'Inicialização da Sandbox', passed: false, error: e.message }]
+        };
+      }
+
+      suite = detectSuite(files);
+      if (suite === 'rag') {
+        orchestrator.log('qa', 'Executando suíte de testes RAG...', 'info');
+        report = await runRagTests(sandboxInfo.baseUrl, orchestrator);
+      } else if (suite === 'auth') {
+        orchestrator.log('qa', 'Executando suíte de testes de Autenticação/JWT...', 'info');
+        report = await runAuthTests(sandboxInfo.baseUrl, orchestrator);
+      } else {
+        orchestrator.log('qa', 'Executando suíte de testes CRUD de Tarefas...', 'info');
+        report = await runCrudTests(sandboxInfo.baseUrl, orchestrator);
+      }
+
+      await sandboxRunner.stop(orchestrator);
+    }
 
     const senior = await thinkAsSenior({
       role: 'qa',

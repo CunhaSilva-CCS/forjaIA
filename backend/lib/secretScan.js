@@ -35,10 +35,26 @@ const SUSPICIOUS_ASSIGNMENTS = [
   },
   {
     id: 'SEC-SECRET-OBJECT-LITERAL',
-    // Objeto/JSON: { apiKey: "sk-...", "password": "hunter2" }
-    regex: /["']?\w*(secret|password|senha|token|api[_-]?key)\w*["']?\s*:\s*["']([^"']{6,})["']/gi
+    // Objeto/JSON: { apiKey: "sk-...", "password": "hunter2" } — o lookbehind exclui
+    // `.`/`?` logo antes da chave pra não casar member access (item.password) nem o `:` de um
+    // ternário (cond ? item.password : "outro valor") como se fossem par chave:valor de objeto.
+    regex: /(?<![.?])["']?\w*(secret|password|senha|token|api[_-]?key)\w*["']?\s*:\s*["']([^"']{6,})["']/gi
   }
 ];
+
+/** Exportado — reaproveitado por agent/security.js pro regex original de segredo, que tem o
+ * mesmo problema de falso positivo em fixture de teste (ver ADR-011, achado ao validar secPass). */
+function isTestFile(filePath) {
+  return /__tests__\/|\.(test|spec)\.[jt]sx?$/i.test(filePath || '');
+}
+
+// Segredo/token/senha de verdade não é uma frase — se o valor capturado tem espaço, é muito mais
+// provável ser uma mensagem de erro/label cujo NOME contém "secret"/"senha" (ex.: uma constante
+// chamada VAULT_SECRET_REQUIRED guardando o texto "Não é possível salvar sem a senha de acesso")
+// do que o segredo em si.
+function looksLikeSecretValue(value) {
+  return !/\s/.test(value);
+}
 
 // Linha estilo .env com valor literal (não process.env, não vazio, não placeholder óbvio de exemplo)
 const ENV_LINE_REGEX = /^[ \t]*[A-Z][A-Z0-9_]*(SECRET|PASSWORD|TOKEN|API_?KEY)[A-Z0-9_]*=(\S{6,})[ \t]*$/gim;
@@ -86,9 +102,11 @@ function scanForHardcodedSecrets(files) {
     }
 
     for (const pattern of SUSPICIOUS_ASSIGNMENTS) {
+      if (isTestFile(filePath)) continue;
       pattern.regex.lastIndex = 0;
       let m;
       while ((m = pattern.regex.exec(code))) {
+        if (!looksLikeSecretValue(m[2])) continue;
         const windowStart = Math.max(0, m.index - 40);
         const context = code.slice(windowStart, m.index + m[0].length);
         if (looksLikeEnvReference(context)) continue;
@@ -122,4 +140,4 @@ function scanForHardcodedSecrets(files) {
   return issues;
 }
 
-module.exports = { scanForHardcodedSecrets };
+module.exports = { scanForHardcodedSecrets, isTestFile };

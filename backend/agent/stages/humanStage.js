@@ -20,8 +20,40 @@ function readDeployedEnv(runConfig) {
 
 async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
-  const human = require('../human');
   orchestrator.broadcast('agent-active', { agent: 'human' });
+
+  // Deploy mobile (Simulador) não tem URL HTTP — o teste humano via fetch não se aplica (ver
+  // ADR-014). Sem uma ferramenta de automação de UI nativa, o pipeline segue sem fingir cobertura
+  // que não existe, deixando isso explícito no relatório em vez de travar ou inventar resultado.
+  const { detectProjectType } = require('../../lib/projectType');
+  if (detectProjectType(orchestrator.currentTask.files) === 'mobile-expo') {
+    orchestrator.log(
+      'human',
+      'Deploy mobile no Simulador — sem URL HTTP pra testar via fetch; teste humano automatizado não se aplica aqui.',
+      'warning'
+    );
+    const humanReport = {
+      passed: true,
+      skipped: true,
+      reason: 'Deploy mobile (Simulador) não expõe URL HTTP; sem ferramenta de automação de UI nativa disponível.',
+      issues: []
+    };
+    orchestrator.currentTask.humanReport = humanReport;
+    orchestrator.savedConfig = {
+      ...orchestrator.savedConfig,
+      humanReport,
+      lastHumanReport: humanReport
+    };
+    orchestrator.persistTask({ config: orchestrator.savedConfig });
+    orchestrator.broadcast('agent-finished', { agent: 'human', status: 'success', data: humanReport });
+    await orchestrator.pauseForApproval(
+      'prodReady',
+      'Deploy mobile no Simulador — teste humano automatizado não se aplica. Aprove o checklist de produção.'
+    );
+    return;
+  }
+
+  const human = require('../human');
   orchestrator.log('human', 'Iniciando teste humano in loco no deploy…', 'info');
 
   // O app implantado pode exigir uma credencial gerada pela própria forja (ex.: API_TOKEN

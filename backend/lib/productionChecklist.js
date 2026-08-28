@@ -269,6 +269,20 @@ async function evaluateProductionReady({
   task = {},
   writeArtifacts = true
 } = {}) {
+  // Checklist inteiro pressupõe artefato web (Dockerfile, PORT, /health) — não se aplica a app
+  // mobile Expo/RN (ver ADR-014). Sem HTTP pra ninguém validar aqui, passa direto: já foi
+  // instalado e aberto de verdade no Simulador na etapa de deploy, o que já é a prova real.
+  const { detectProjectType } = require('./projectType');
+  if (detectProjectType(task.files) === 'mobile-expo') {
+    return {
+      ready: true,
+      summary: 'Projeto mobile — checklist de produção web não se aplica; app já instalado e aberto no Simulador.',
+      checks: [],
+      issues: [],
+      artifactsWritten: []
+    };
+  }
+
   const checks = [];
   const artifactsWritten = writeArtifacts
     ? ensureProductionArtifacts(deployDir, { deployUrl, relativeTarget })

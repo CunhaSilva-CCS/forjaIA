@@ -54,3 +54,13 @@ detectores determinísticos enxergam, pra depender menos do LLM revisor reconhec
 - `secretScan.js` pode gerar falso positivo em casos legítimos (ex.: uma string de 6+ caracteres
   que contenha a palavra "token" mas não seja um segredo real) — aceito como trade-off: nesta
   camada, falso positivo custa uma revisão extra; falso negativo custa um segredo vazado.
+
+**Atualização (ver ADR-014)**: validar o pipeline contra um projeto mobile real (secPass) achou
+falsos positivos concretos demais pra aceitar como trade-off — tanto o regex original de segredo
+em `security.js` quanto o `secretScan.js` novo batiam em senha literal de fixture de teste
+(`__tests__/*.test.js`) e numa constante cujo NOME continha "secret" mas o VALOR era uma frase de
+erro. Corrigido: os dois detectores por nome ignoram arquivo de teste; o valor capturado precisa
+não conter espaço (segredo de verdade não é frase); o regex de objeto-literal ganhou lookbehind
+pra não casar ternário/member access (`item.password : "..."`) como se fosse `chave: valor`. O
+scanner por FORMATO de token (`sk-ant-...`, `AKIA...`, etc.) continua valendo em qualquer arquivo,
+inclusive de teste — um token real vazado num teste ainda é um vazamento real.

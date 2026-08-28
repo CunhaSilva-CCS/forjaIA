@@ -7,11 +7,12 @@ async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
   orchestrator.currentTask.deployUrl = deployResult.url;
   orchestrator.persistTask({ deployUrl: deployResult.url });
-  orchestrator.log('orchestrator', `Projeto implantado em ${deployResult.url}`, 'success');
+  const where = deployResult.url || `Simulador (${deployResult.simulatorName || 'iPhone'})`;
+  orchestrator.log('orchestrator', `Projeto implantado em ${where}`, 'success');
   orchestrator.broadcast('agent-finished', { agent: 'devops', status: 'success', data: deployResult });
   await orchestrator.pauseForApproval(
     'human',
-    `Deploy em ${deployResult.url}. Aprove o teste humano in loco (fluxo e funcionamento).`
+    `Deploy em ${where}. Aprove o teste humano in loco (fluxo e funcionamento).`
   );
 }
 
