@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const config = require('./config');
+const { stableConstitutionBlock } = require('./seniorEngineer');
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -216,7 +217,21 @@ async function callOllama({ system, user, model, signal }) {
 /**
  * Anthropic Claude Messages API
  */
-async function callClaude({ system, user, apiKey, baseUrl, model, signal }) {
+/**
+ * Divide o system prompt já composto no prefixo fixo (constituição + regras, ver ADR-008) +
+ * o restante específico da etapa. Reconstrói o prefixo esperado localmente (mesma função que
+ * gerou o prompt) em vez de recebê-lo separado, pra não precisar mudar a assinatura de
+ * composeSystemPrompt nem de nenhuma etapa que já chama generateJson({ system, ... }).
+ */
+function splitClaudeSystemForCache(system, runConfig) {
+  const stable = stableConstitutionBlock(runConfig);
+  if (typeof system === 'string' && system.startsWith(stable)) {
+    return { stable, rest: system.slice(stable.length) };
+  }
+  return null;
+}
+
+async function callClaude({ system, user, apiKey, baseUrl, model, signal, runConfig }) {
   const key = apiKey || config.anthropicApiKey;
   if (!key) throw new Error('ANTHROPIC_API_KEY não está configurada no servidor');
 
@@ -229,20 +244,32 @@ async function callClaude({ system, user, apiKey, baseUrl, model, signal }) {
     else signal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
+  // Prefixo fixo marcado como cache_control: chamadas seguintes dentro da mesma run (e mais
+  // barato ainda entre etapas diferentes, já que o prefixo é o mesmo pra todas) reaproveitam
+  // esse trecho por um preço bem menor em vez de reprocessá-lo do zero (ver ADR-008).
+  const split = splitClaudeSystemForCache(system, runConfig || {});
+  const systemPayload = split
+    ? [
+        { type: 'text', text: split.stable, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: split.rest }
+      ]
+    : system;
+
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': key,
-        'anthropic-version': config.anthropicVersion
+        'anthropic-version': config.anthropicVersion,
+        'anthropic-beta': 'prompt-caching-2024-07-31'
       },
       signal: controller.signal,
       body: JSON.stringify({
         model: model || config.anthropicModel,
         max_tokens: 8192,
         temperature: 0.2,
-        system,
+        system: systemPayload,
         messages: [
           {
             role: 'user',
@@ -263,11 +290,19 @@ async function callClaude({ system, user, apiKey, baseUrl, model, signal }) {
       .map((p) => p.text)
       .join('\n');
     const parsed = extractJson(text);
+    // Num cache hit, usage.input_tokens já vem SEM o trecho cacheado — some do total sem
+    // cache_creation_input_tokens (escrita no cache, 1ª chamada) e cache_read_input_tokens
+    // (leitura do cache, chamadas seguintes, bem mais barato mas ainda processado).
+    const cacheRead = data.usage?.cache_read_input_tokens || 0;
+    const cacheWrite = data.usage?.cache_creation_input_tokens || 0;
+    const promptTokens = (data.usage?.input_tokens || 0) + cacheRead + cacheWrite;
     const tokens = data.usage
       ? {
-          prompt: data.usage.input_tokens || 0,
+          prompt: promptTokens,
           completion: data.usage.output_tokens || 0,
-          total: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0)
+          total: promptTokens + (data.usage.output_tokens || 0),
+          cacheRead,
+          cacheWrite
         }
       : { prompt: 0, completion: 0, total: 0 };
 
@@ -444,7 +479,8 @@ async function callByProvider(provider, { system, user, runConfig, signal }) {
       user,
       model: runConfig.claudeModel || runConfig.anthropicModel || config.anthropicModel,
       baseUrl: runConfig.anthropicBaseUrl || config.anthropicBaseUrl,
-      signal
+      signal,
+      runConfig
     });
   }
   // gemini (default)

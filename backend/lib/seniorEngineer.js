@@ -105,19 +105,30 @@ function loadStyleRules(runConfig = {}) {
 }
 
 /**
+ * Bloco fixo — constituição + regras de estilo — idêntico em toda chamada de LLM do pipeline
+ * (arquiteto, codificador, QA, segurança, depurador, cada tentativa de cura...), variando só
+ * por preferências de estilo do runConfig/DB, que ficam fixas dentro de uma run. Extraído como
+ * prefixo isolado e SEMPRE em primeiro lugar no prompt (ver composeSystemPrompt) pra servir de
+ * marcador de cache de prompt (ver ADR-008): sem isso na frente, cada chamada — mesmo repetindo
+ * ~90% do conteúdo — reprocessa tudo do zero, e cache de prompt (Claude, Gemini) exige que o
+ * trecho reaproveitado seja um prefixo estável, não uma string qualquer no meio do texto.
+ */
+function stableConstitutionBlock(runConfig = {}, extraRules = []) {
+  const styleRules = [...loadStyleRules(runConfig), ...extraRules];
+  const rulesBlock = styleRules.map((r, i) => `${i + 1}. ${r}`).join('\n');
+  return [CONSTITUTION, '', 'REGRAS DE ESTILO / ENGENHARIA (obrigatórias):', rulesBlock].join('\n');
+}
+
+/**
  * Monta system prompt de elite para um papel da forja.
  */
 function composeSystemPrompt(role, taskContract, runConfig = {}, extraRules = []) {
   const title = ROLE_TITLES[role] || ROLE_TITLES.coder;
-  const styleRules = [...loadStyleRules(runConfig), ...extraRules];
-  const rulesBlock = styleRules.map((r, i) => `${i + 1}. ${r}`).join('\n');
 
   return [
-    `Você é ${title} da ForjaIA.`,
-    CONSTITUTION,
+    stableConstitutionBlock(runConfig, extraRules),
     '',
-    'REGRAS DE ESTILO / ENGENHARIA (obrigatórias):',
-    rulesBlock,
+    `Você é ${title} da ForjaIA.`,
     '',
     'MISSÃO DESTA ETAPA:',
     taskContract.trim()
@@ -185,6 +196,7 @@ module.exports = {
   DEFAULT_STYLE_RULES,
   ROLE_TITLES,
   composeSystemPrompt,
+  stableConstitutionBlock,
   loadStyleRules,
   announceThinking,
   thinkAsSenior,
