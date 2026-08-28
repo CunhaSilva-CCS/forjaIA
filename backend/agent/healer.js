@@ -1,8 +1,45 @@
+const path = require('path');
 const config = require('../lib/config');
 const { generateJson } = require('../lib/llm');
 const { composeSystemPrompt, announceThinking } = require('../lib/seniorEngineer');
 
+/** Paths que o Depurador/Segurança já apontaram como a causa concreta do problema. */
+function collectFlaggedPaths(knownPaths, securityReport, diagnosis) {
+  const flagged = new Set();
+  for (const issue of securityReport?.issues || []) {
+    if (issue?.file && knownPaths.has(issue.file)) flagged.add(issue.file);
+  }
+  for (const fix of diagnosis?.recommendedFixes || []) {
+    for (const p of fix?.files || []) {
+      if (knownPaths.has(p)) flagged.add(p);
+    }
+  }
+  for (const cause of diagnosis?.rootCauses || []) {
+    for (const p of cause?.affectedFiles || []) {
+      if (knownPaths.has(p)) flagged.add(p);
+    }
+  }
+  return flagged;
+}
+
+/** Um hop: outros arquivos que citam o nome-base de um arquivo sinalizado (ex.: quem importa
+ * o middleware quebrado) — cobre problemas que atravessam mais de um arquivo. */
+function findDependents(files, flaggedPaths) {
+  const baseNames = [...flaggedPaths]
+    .map((p) => path.basename(p, path.extname(p)))
+    .filter(Boolean);
+  const extra = new Set();
+  for (const file of files) {
+    if (flaggedPaths.has(file.path)) continue;
+    const content = String(file.content || '');
+    if (baseNames.some((base) => content.includes(base))) extra.add(file.path);
+  }
+  return extra;
+}
+
 module.exports = {
+  collectFlaggedPaths,
+  findDependents,
   execute: async (files, testReport, securityReport, runConfig, orchestrator) => {
     orchestrator.throwIfAborted();
     announceThinking(orchestrator, 'healer');
@@ -18,10 +55,41 @@ Priorize recommendedFixes e notesForHealer do Depurador.`,
       runConfig
     );
 
-    const user = `
-Arquivos atuais:
-${JSON.stringify(files.map((f) => ({ path: f.path, content: f.content })))}
+    // Reenviar o codebase inteiro a cada cura é caro e lento (é o maior gargalo de tempo do
+    // pipeline em projetos com muitos arquivos) — manda só os arquivos apontados pelo
+    // Depurador/Segurança + quem os importa, com o resto listado só por path pra manter o
+    // Curador ciente da estrutura do projeto sem pagar o custo do conteúdo inteiro. Se nada
+    // foi sinalizado com precisão, cai para o codebase completo (mesmo comportamento de antes).
+    const diagnosis = runConfig.diagnosis || null;
+    const knownPaths = new Set(files.map((f) => f.path));
+    const flaggedPaths = collectFlaggedPaths(knownPaths, securityReport, diagnosis);
+    const dependentPaths = flaggedPaths.size ? findDependents(files, flaggedPaths) : new Set();
+    const selectedPaths = new Set([...flaggedPaths, ...dependentPaths]);
+    const pkg = files.find((f) => f.path === 'package.json');
+    if (pkg) selectedPaths.add(pkg.path);
 
+    const useSelective = selectedPaths.size > 0 && selectedPaths.size < files.length;
+    const filesToSend = useSelective ? files.filter((f) => selectedPaths.has(f.path)) : files;
+    const manifestOnly = useSelective ? files.filter((f) => !selectedPaths.has(f.path)) : [];
+
+    if (useSelective) {
+      orchestrator.log(
+        'healer',
+        `Enviando ${filesToSend.length}/${files.length} arquivo(s) relevantes ao Curador (resto só por path).`,
+        'info'
+      );
+    }
+
+    const user = `
+Arquivos com conteúdo completo (relevantes ao problema):
+${JSON.stringify(filesToSend.map((f) => ({ path: f.path, content: f.content })))}
+${
+  manifestOnly.length
+    ? `\nOutros arquivos do projeto que existem mas não foram incluídos por não parecerem relevantes
+(se descobrir que precisa editar algum, pode devolvê-lo mesmo assim — use o path exato):
+${JSON.stringify(manifestOnly.map((f) => f.path))}\n`
+    : ''
+}
 Testes que falharam:
 ${JSON.stringify(testReport)}
 
@@ -29,10 +97,10 @@ Achados de segurança:
 ${JSON.stringify(securityReport)}
 
 Diagnóstico do Depurador Sênior (use como guia prioritário):
-${JSON.stringify(runConfig.diagnosis || null)}
+${JSON.stringify(diagnosis)}
 
 Instruções diretas do Depurador (notesForHealer):
-${runConfig.diagnosis?.notesForHealer || '(nenhuma)'}
+${diagnosis?.notesForHealer || '(nenhuma)'}
 
 Reescreva os arquivos corrigindo TODOS os problemas relatados, priorizando recommendedFixes e notesForHealer.
 `;
@@ -53,10 +121,25 @@ Reescreva os arquivos corrigindo TODOS os problemas relatados, priorizando recom
       if (!result.data?.files?.length) throw new Error('O Curador não retornou arquivos');
 
       orchestrator.log('healer', `Código curado via ${result.provider}.`, 'success');
-      return files.map((orig) => {
-        const healed = result.data.files.find((f) => f.path === orig.path);
-        return healed ? { ...orig, content: healed.content } : orig;
+      // O LLM pode decidir criar arquivo(s) novo(s) (ex.: middleware/rota de auth que não
+      // existiam) — sem isso, a resposta era descartada e sobravam imports para arquivos
+      // que nunca chegavam a existir no disco (build quebrava com "Cannot find module").
+      const healedByPath = new Map(result.data.files.map((f) => [f.path, f.content]));
+      const patched = files.map((orig) => {
+        if (!healedByPath.has(orig.path)) return orig;
+        const content = healedByPath.get(orig.path);
+        healedByPath.delete(orig.path);
+        return { ...orig, content };
       });
+      const newFiles = [...healedByPath].map(([filePath, content]) => ({
+        name: path.basename(filePath),
+        path: filePath,
+        content
+      }));
+      if (newFiles.length) {
+        orchestrator.log('healer', `${newFiles.length} arquivo(s) novo(s) criado(s) pela cura.`, 'info');
+      }
+      return [...patched, ...newFiles];
     } catch (err) {
       if (!config.allowMocks) {
         throw new Error(`Falha no LLM do Curador (mocks desligados): ${err.message}`);

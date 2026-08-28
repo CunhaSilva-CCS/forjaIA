@@ -227,7 +227,7 @@ describe('healerStage', () => {
     }
   });
 
-  it('quando o curador falha, pausa em healer para nova tentativa sem incrementar', async () => {
+  it('quando o curador falha, incrementa healingAttempts e pausa em healer para nova tentativa', async () => {
     const healer = fresh('../agent/healer');
     const original = healer.execute;
     healer.execute = async () => {
@@ -237,9 +237,29 @@ describe('healerStage', () => {
       const stage = fresh('../agent/stages/healerStage');
       const orch = makeOrchestrator({ healingAttempts: 0 });
       await stage.run(orch, {});
-      assert.equal(orch.healingAttempts, 0);
+      // Falha também conta pro limite — senão uma sequência de falhas nunca bate o teto
+      // e fica pedindo pra tentar de novo pra sempre.
+      assert.equal(orch.healingAttempts, 1);
       assert.equal(orch.pauseCalls[0].nextStage, 'healer');
       assert.match(orch.pauseCalls[0].message, /llm indisponível/);
+    } finally {
+      healer.execute = original;
+    }
+  });
+
+  it('quando o curador falha e já bateu o limite de tentativas, segue para devops em vez de repetir', async () => {
+    const healer = fresh('../agent/healer');
+    const original = healer.execute;
+    healer.execute = async () => {
+      throw new Error('llm indisponível');
+    };
+    try {
+      const stage = fresh('../agent/stages/healerStage');
+      const orch = makeOrchestrator({ healingAttempts: 2, maxHealingAttempts: 3 });
+      await stage.run(orch, {});
+      assert.equal(orch.healingAttempts, 3);
+      assert.equal(orch.pauseCalls[0].nextStage, 'devops');
+      assert.match(orch.pauseCalls[0].message, /limite de tentativas/i);
     } finally {
       healer.execute = original;
     }

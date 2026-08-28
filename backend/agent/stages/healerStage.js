@@ -32,12 +32,29 @@ async function run(orchestrator, runConfig) {
     orchestrator.broadcast('agent-finished', { agent: 'healer', status: 'success', data: healedFiles });
   } catch (healErr) {
     if (healErr.cancelled) throw healErr;
+    // Uma tentativa falha também conta pro limite — sem isso, healingAttempts nunca sobe em
+    // falha e uma sequência de curas malsucedidas pausa em "healer" indefinidamente, sempre
+    // pedindo pra tentar de novo, sem nunca bater o teto e seguir em frente.
+    orchestrator.healingAttempts = attempt;
+    orchestrator.savedConfig = { ...orchestrator.savedConfig, healingAttempts: orchestrator.healingAttempts };
     orchestrator.log('healer', `Cura indisponível (${healErr.message}).`, 'warning');
     orchestrator.broadcast('agent-finished', {
       agent: 'healer',
       status: 'failed',
       data: { error: healErr.message }
     });
+    if (orchestrator.healingAttempts >= orchestrator.maxHealingAttempts) {
+      orchestrator.log(
+        'orchestrator',
+        `Máximo de tentativas de cura atingido (${orchestrator.healingAttempts}) sem sucesso; seguindo com ressalvas.`,
+        'warning'
+      );
+      await orchestrator.pauseForApproval(
+        'devops',
+        `Curador falhou ${orchestrator.healingAttempts}x seguidas (${healErr.message}). Limite de tentativas atingido — aprove para seguir mesmo assim ou cancele.`
+      );
+      return;
+    }
     await orchestrator.pauseForApproval(
       'healer',
       `Curador falhou (${healErr.message}). Aprove para tentar novamente ou cancele a execução.`

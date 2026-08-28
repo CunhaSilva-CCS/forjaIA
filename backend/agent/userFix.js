@@ -1,3 +1,4 @@
+const path = require('path');
 const config = require('../lib/config');
 const { generateJson } = require('../lib/llm');
 const { composeSystemPrompt, announceThinking } = require('../lib/seniorEngineer');
@@ -188,8 +189,19 @@ Corrija os problemas relatados. Devolva o conteúdo completo de cada arquivo alt
           model: result.model
         });
       }
-      if (!result.data?.files?.length) {
+      if (!Array.isArray(result.data?.files)) {
         throw new Error('O Corretor do Usuário não retornou arquivos');
+      }
+      // Lista vazia é uma resposta válida: o LLM pode legitimamente concluir que nada
+      // no código precisa mudar (ex.: o problema relatado era de configuração de deploy,
+      // não do app) — nesse caso os arquivos originais seguem inalterados, sem erro.
+      if (!result.data.files.length) {
+        orchestrator.log(
+          'userFix',
+          result.data.summary || `Nenhuma alteração de código necessária (via ${result.provider}).`,
+          'success'
+        );
+        return files || [];
       }
       if (result.data.summary) {
         orchestrator.log('userFix', result.data.summary, 'success');
@@ -198,9 +210,21 @@ Corrija os problemas relatados. Devolva o conteúdo completo de cada arquivo alt
       }
 
       const byPath = new Map(result.data.files.map((f) => [f.path, f.content]));
-      return (files || []).map((orig) =>
-        byPath.has(orig.path) ? { ...orig, content: byPath.get(orig.path) } : orig
-      );
+      const patched = (files || []).map((orig) => {
+        if (!byPath.has(orig.path)) return orig;
+        const content = byPath.get(orig.path);
+        byPath.delete(orig.path);
+        return { ...orig, content };
+      });
+      const newFiles = [...byPath].map(([filePath, content]) => ({
+        name: path.basename(filePath),
+        path: filePath,
+        content
+      }));
+      if (newFiles.length) {
+        orchestrator.log('userFix', `${newFiles.length} arquivo(s) novo(s) criado(s) pela correção.`, 'info');
+      }
+      return [...patched, ...newFiles];
     } catch (err) {
       const heuristic = applyHeuristicFixes(files, fixReport);
       if (heuristic?.files?.length) {
