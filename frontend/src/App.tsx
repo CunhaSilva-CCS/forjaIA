@@ -7,6 +7,7 @@ import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DeployCard } from './components/DeployCard';
 import { TestsCard } from './components/TestsCard';
 import { LlmTokensCard } from './components/LlmTokensCard';
+import { ReliabilityCard } from './components/ReliabilityCard';
 import { RulesCard } from './components/RulesCard';
 import { FolderBrowserModal } from './components/FolderBrowserModal';
 import { getStoredToken } from './config';
@@ -40,6 +41,7 @@ function Dashboard() {
           <DeployCard s={s} />
           <TestsCard s={s} />
           <LlmTokensCard s={s} />
+          <ReliabilityCard s={s} />
           <RulesCard s={s} />
         </div>
       </div>

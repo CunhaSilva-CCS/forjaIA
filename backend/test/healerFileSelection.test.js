@@ -55,3 +55,64 @@ describe('healer.findDependents', () => {
     assert.equal(dependents.size, 0);
   });
 });
+
+describe('healer.execute — escalada de provedor na última tentativa (ADR-013)', () => {
+  function fresh(mod) {
+    delete require.cache[require.resolve(mod)];
+    return require(mod);
+  }
+
+  it('runConfig.escalateProvider=true → usa um provedor diferente do primário da run', async () => {
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    fresh('../lib/config');
+    fresh('../lib/llm');
+    const healer = fresh('../agent/healer');
+
+    const originalFetch = global.fetch;
+    let calledGemini = false;
+    let calledClaude = false;
+    global.fetch = async (url) => {
+      if (String(url).includes('generativelanguage.googleapis.com')) {
+        calledGemini = true;
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: '{"files":[{"path":"a.js","content":"fixed"}]}' }] } }],
+            usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 }
+          })
+        };
+      }
+      calledClaude = true;
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: '{"files":[{"path":"a.js","content":"fixed"}]}' }],
+          usage: {}
+        })
+      };
+    };
+
+    const orchestrator = {
+      throwIfAborted: () => {},
+      log: () => {},
+      recordTokens: () => {},
+      getSignal: () => undefined
+    };
+
+    try {
+      await healer.execute(
+        [{ path: 'a.js', content: 'broken' }],
+        { tests: [], passed: false },
+        { issues: [], passed: true },
+        { llmProvider: 'claude', escalateProvider: true },
+        orchestrator
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(calledGemini, true, 'esperava escalar para o Gemini (alternativa ao Claude)');
+    assert.equal(calledClaude, false, 'não deveria ter insistido no Claude na última tentativa');
+  });
+});

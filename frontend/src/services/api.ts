@@ -119,7 +119,16 @@ export const api = {
     fileVersions: (id: string, filePath: string) =>
       request<Array<{ id: number; path: string; content: string; version: number }>>(
         `/api/runs/${id}/files/${encodeURIComponent(filePath)}/versions`
-      )
+      ),
+    reliabilityStats: () =>
+      request<{
+        measuredRuns: number;
+        finishedWithoutInterventionRate: number | null;
+        avgHealingAttempts: number | null;
+        userFixInvokedRate: number | null;
+        avgTestPassRate: number | null;
+        humanPassedRate: number | null;
+      }>('/api/runs/stats/reliability')
   },
   browse: (path: string) =>
     request<{

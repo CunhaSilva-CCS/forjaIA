@@ -264,6 +264,43 @@ describe('healerStage', () => {
       healer.execute = original;
     }
   });
+
+  it('não escala provedor em tentativas normais (ADR-013)', async () => {
+    const healer = fresh('../agent/healer');
+    const original = healer.execute;
+    let capturedRunConfig = null;
+    healer.execute = async (files, tests, security, runConfig) => {
+      capturedRunConfig = runConfig;
+      return [{ path: 'a.js', content: 'fixed' }];
+    };
+    try {
+      const stage = fresh('../agent/stages/healerStage');
+      const orch = makeOrchestrator({ healingAttempts: 0, maxHealingAttempts: 3 });
+      await stage.run(orch, {});
+      assert.equal(capturedRunConfig.escalateProvider, false);
+    } finally {
+      healer.execute = original;
+    }
+  });
+
+  it('escala provedor na última tentativa antes do teto (ADR-013)', async () => {
+    const healer = fresh('../agent/healer');
+    const original = healer.execute;
+    let capturedRunConfig = null;
+    healer.execute = async (files, tests, security, runConfig) => {
+      capturedRunConfig = runConfig;
+      return [{ path: 'a.js', content: 'fixed' }];
+    };
+    try {
+      const stage = fresh('../agent/stages/healerStage');
+      // healingAttempts=2, maxHealingAttempts=3 → esta é a tentativa #3, a última.
+      const orch = makeOrchestrator({ healingAttempts: 2, maxHealingAttempts: 3 });
+      await stage.run(orch, {});
+      assert.equal(capturedRunConfig.escalateProvider, true);
+    } finally {
+      healer.execute = original;
+    }
+  });
 });
 
 describe('devopsLoadStage', () => {

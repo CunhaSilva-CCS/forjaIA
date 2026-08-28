@@ -94,6 +94,15 @@ export function useForjaApp() {
     detail: string;
   } | null>(null);
   const [llmProbeLoading, setLlmProbeLoading] = useState(false);
+  const [reliabilityStats, setReliabilityStats] = useState<{
+    measuredRuns: number;
+    finishedWithoutInterventionRate: number | null;
+    avgHealingAttempts: number | null;
+    userFixInvokedRate: number | null;
+    avgTestPassRate: number | null;
+    humanPassedRate: number | null;
+  } | null>(null);
+  const [reliabilityLoading, setReliabilityLoading] = useState(false);
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [dockerActive, setDockerActive] = useState(false);
   const [cursorOnline, setCursorOnline] = useState(false);
@@ -407,6 +416,7 @@ export function useForjaApp() {
           setAgentStates(deriveAgentStates({ ...payload, status: 'completed' }));
           confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
           api.runs.list().then(setRuns).catch(() => undefined);
+          api.runs.reliabilityStats().then(setReliabilityStats).catch(() => undefined);
           break;
         }
         case 'task-failed':
@@ -464,6 +474,22 @@ export function useForjaApp() {
   useEffect(() => {
     void refreshLlmProbe(llmProvider);
   }, [llmProvider, refreshLlmProbe]);
+
+  const refreshReliabilityStats = useCallback(async () => {
+    setReliabilityLoading(true);
+    try {
+      const stats = await api.runs.reliabilityStats();
+      setReliabilityStats(stats);
+    } catch {
+      // silencioso — card mostra o último valor conhecido (ou nada, no primeiro load)
+    } finally {
+      setReliabilityLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshReliabilityStats();
+  }, [refreshReliabilityStats]);
 
   // removed auto-browse effect that looped on currentBrowserPath
   const runConfig = () => ({
@@ -787,6 +813,9 @@ export function useForjaApp() {
     llmProbe,
     llmProbeLoading,
     refreshLlmProbe,
+    reliabilityStats,
+    reliabilityLoading,
+    refreshReliabilityStats,
     ollamaOnline,
     cursorOnline,
     hasGeminiKey,

@@ -1,6 +1,6 @@
 const path = require('path');
 const config = require('../lib/config');
-const { generateJson } = require('../lib/llm');
+const { generateJson, resolveReviewProvider } = require('../lib/llm');
 const { composeSystemPrompt, announceThinking } = require('../lib/seniorEngineer');
 
 /** Paths que o Depurador/Segurança já apontaram como a causa concreta do problema. */
@@ -105,11 +105,25 @@ ${diagnosis?.notesForHealer || '(nenhuma)'}
 Reescreva os arquivos corrigindo TODOS os problemas relatados, priorizando recommendedFixes e notesForHealer.
 `;
 
+    // Última tentativa antes do teto (ver ADR-013): tentar de novo com o mesmo provedor que já
+    // falhou 2x tende a repetir o mesmo erro de raciocínio — escala pra um provedor diferente
+    // só nesse ponto, quando já não há muito a perder.
+    const effectiveRunConfig = runConfig.escalateProvider
+      ? { ...runConfig, llmProvider: resolveReviewProvider(runConfig) }
+      : runConfig;
+    if (runConfig.escalateProvider) {
+      orchestrator.log(
+        'healer',
+        `Última tentativa de cura — escalando para o provedor ${effectiveRunConfig.llmProvider}.`,
+        'warning'
+      );
+    }
+
     try {
       const result = await generateJson({
         system,
         user,
-        runConfig,
+        runConfig: effectiveRunConfig,
         signal: orchestrator.getSignal()
       });
       if (result.tokens) {

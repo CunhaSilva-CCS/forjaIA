@@ -1,6 +1,11 @@
 async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
   const attempt = orchestrator.healingAttempts + 1;
+  // Última chance antes de desistir (ver ADR-013): se as tentativas anteriores já falharam com
+  // o mesmo provedor, insistir nele pela 3ª vez tende a repetir o mesmo raciocínio errado.
+  // Escalar pra um provedor diferente só aqui — não em toda tentativa — é o ponto onde vale o
+  // risco de trocar de "cérebro" no meio da run.
+  const isLastAttempt = attempt >= orchestrator.maxHealingAttempts;
 
   try {
     const healer = require('../healer');
@@ -12,7 +17,8 @@ async function run(orchestrator, runConfig) {
       {
         ...runConfig,
         diagnosis:
-          orchestrator.lastDiagnosis || orchestrator.currentTask.diagnosis || orchestrator.savedConfig?.lastDiagnosis
+          orchestrator.lastDiagnosis || orchestrator.currentTask.diagnosis || orchestrator.savedConfig?.lastDiagnosis,
+        escalateProvider: isLastAttempt
       },
       orchestrator
     );
