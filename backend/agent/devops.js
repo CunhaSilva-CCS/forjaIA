@@ -4,6 +4,15 @@ const crypto = require('crypto');
 const config = require('../lib/config');
 const { resolveWithinWorkspace, safeRmDir } = require('../lib/paths');
 const deployRuntime = require('../lib/deployRuntime');
+const { scanEnvVarNames } = require('../lib/envScan');
+
+/** Variável nova que o código passou a exigir (ex.: introduzida por uma cura) e nunca foi
+ * declarada em .env.example nem em JWT_SECRET/CORS_ORIGIN especiais — gera um valor real
+ * (não é sandbox descartável; é o app que o usuário vai efetivamente rodar). */
+function realValueFor(key) {
+  const isSecretLike = /SECRET|KEY|TOKEN|PASSWORD/i.test(key);
+  return isSecretLike ? crypto.randomBytes(32).toString('hex') : 'change-me';
+}
 
 module.exports = {
   prepareSandbox: async (files, runConfig, orchestrator) => {
@@ -124,10 +133,17 @@ Retorne APENAS JSON:
         !/sem package\.json|missing package\.json|sem script start|entrypoint ausente|não inicia|cannot start/i.test(
           summary
         );
-      if (dockerfileOnlyComplaint) {
+      // O próprio LLM às vezes alucina "workspace vazio" mesmo com hasStart confirmado
+      // deterministicamente a partir do package.json real (visto nesta sessão: o pré-voo
+      // reprovou duas vezes seguidas por "nenhum artefato encontrado" enquanto os arquivos
+      // já estavam escritos em disco). hasStart não vem do LLM — vem do parse local do
+      // package.json — então é mais confiável que a alegação do próprio pré-voo.
+      const emptyWorkspaceFalsePositive =
+        hasStart && files.length > 3 && /vazio|empty|nenhum arquivo|no files|not.*found/i.test(summary);
+      if (dockerfileOnlyComplaint || emptyWorkspaceFalsePositive) {
         orchestrator.log(
           'devops',
-          `Pré-voo LLM marcou não-pronto por Dockerfile/PORT — seguindo (artefato gerado pela forja). Motivo: ${summary}`,
+          `Pré-voo LLM marcou não-pronto (${dockerfileOnlyComplaint ? 'Dockerfile/PORT' : 'alegação de workspace vazio'}) — seguindo, package.json/start já confirmados localmente. Motivo: ${summary}`,
           'warning'
         );
       } else if (!hasStart) {
@@ -192,6 +208,11 @@ Retorne APENAS JSON:
         : null) ||
       crypto.randomBytes(32).toString('hex');
 
+    // Cobre variável nova que o código passou a exigir (ex.: SESSION_SECRET introduzida por
+    // uma cura) e nunca foi declarada em .env.example — sem isso o processo de deploy sobe
+    // e crasha na primeira leitura de process.env que faltar.
+    const scannedEnvNames = scanEnvVarNames(files);
+
     if (isValidate && fs.existsSync(envPath)) {
       const existing = fs.readFileSync(envPath, 'utf8');
       const lines = existing.split(/\r?\n/).filter((l) => l.trim() !== '');
@@ -205,25 +226,28 @@ Retorne APENAS JSON:
       if (!map.has('HOST')) map.set('HOST', '0.0.0.0');
       if (!map.has('JWT_SECRET')) map.set('JWT_SECRET', secureJwtSecret);
       if (!map.has('NODE_ENV')) map.set('NODE_ENV', 'production');
+      for (const key of scannedEnvNames) {
+        if (!map.has(key)) map.set(key, realValueFor(key));
+      }
       const merged = [...map.entries()].map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
       fs.writeFileSync(envPath, merged, 'utf8');
       orchestrator.log('devops', 'Preservado .env do projeto; PORT ajustado para deploy.', 'info');
     } else {
-      const corsOrigin =
-        process.env.CORS_ORIGIN ||
-        config.corsOrigin ||
-        'http://127.0.0.1:3001';
-      const envContent =
-        [
-          `PORT=${config.deployHostPort}`,
-          `HOST=0.0.0.0`,
-          `JWT_SECRET=${secureJwtSecret}`,
-          `NODE_ENV=production`,
-          `CORS_ORIGIN=${corsOrigin}`,
-          `DATABASE_PATH=./data/auth.sqlite`,
-          `EMBEDDING_PROVIDER=local`,
-          `DB_PATH=./data/rag.db`
-        ].join('\n') + '\n';
+      // Default é a própria origem do app implantado (porta do deploy), não a do ForjaIA —
+      // reaproveitar config.corsOrigin aqui bloqueava o front do app recém-implantado de
+      // chamar sua própria API, já que o ForjaIA roda numa porta completamente diferente.
+      const corsOrigin = `http://127.0.0.1:${config.deployHostPort}`;
+      const map = new Map([
+        ['PORT', String(config.deployHostPort)],
+        ['HOST', '0.0.0.0'],
+        ['JWT_SECRET', secureJwtSecret],
+        ['NODE_ENV', 'production'],
+        ['CORS_ORIGIN', corsOrigin]
+      ]);
+      for (const key of scannedEnvNames) {
+        if (!map.has(key)) map.set(key, realValueFor(key));
+      }
+      const envContent = [...map.entries()].map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
       fs.writeFileSync(envPath, envContent, 'utf8');
     }
 
@@ -240,12 +264,14 @@ Retorne APENAS JSON:
         : []
     );
 
+    const hostPort =
+      (runConfig.environment || fileEnv.FORJA_ENVIRONMENT) === 'staging'
+        ? config.stagingHostPort
+        : config.deployHostPort;
+
     const result = await deployRuntime.startDeploy({
       deployDir,
-      hostPort:
-        (runConfig.environment || fileEnv.FORJA_ENVIRONMENT) === 'staging'
-          ? config.stagingHostPort
-          : config.deployHostPort,
+      hostPort,
       env: {
         ...fileEnv,
         JWT_SECRET: fileEnv.JWT_SECRET || secureJwtSecret,
@@ -253,10 +279,7 @@ Retorne APENAS JSON:
         CORS_ORIGIN:
           fileEnv.CORS_ORIGIN && fileEnv.CORS_ORIGIN !== '*'
             ? fileEnv.CORS_ORIGIN
-            : process.env.CORS_ORIGIN || config.corsOrigin || 'http://127.0.0.1:3001',
-        EMBEDDING_PROVIDER: fileEnv.EMBEDDING_PROVIDER || 'local',
-        DB_PATH: fileEnv.DB_PATH || './data/rag.db',
-        DATABASE_PATH: fileEnv.DATABASE_PATH || './data/auth.sqlite',
+            : `http://127.0.0.1:${hostPort}`,
         FORJA_ENVIRONMENT: runConfig.environment === 'staging' ? 'staging' : 'local'
       },
       orchestrator

@@ -47,18 +47,18 @@ async function waitForHttp(baseUrl, { attempts = 30, delayMs = 1200, orchestrato
         lastErr = err;
       }
     }
-    try {
-      const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(2500) });
-      if (res.ok) return true;
-      lastErr = new Error(`HTTP ${res.status}`);
-    } catch (err) {
-      lastErr = err;
+    // Nem todo projeto gerado tem /health ou /api/health (só quando pedido explicitamente) —
+    // tentar / também e aceitar qualquer resposta < 500 (o app está no ar; 404 num probe de
+    // saúde inexistente não significa "não saudável"). Mesmo critério do sandbox (runner.js).
+    for (const probe of ['/api/health', '/health', '/']) {
       try {
-        const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2500) });
-        if (res.ok) return true;
-        lastErr = new Error(`HTTP ${res.status}`);
-      } catch (err2) {
-        lastErr = err2;
+        const res = await fetch(`${baseUrl}${probe === '/' ? '' : probe}`, {
+          signal: AbortSignal.timeout(2500)
+        });
+        if (res.status < 500) return true;
+        lastErr = new Error(`HTTP ${res.status} em ${probe}`);
+      } catch (err) {
+        lastErr = err;
       }
     }
     orchestrator?.log?.(
@@ -203,9 +203,10 @@ async function startDeploy({ deployDir, hostPort, env = {}, orchestrator }) {
     }
 
     try {
-      execSync(`docker build -t ${IMAGE_TAG} .`, { cwd: deployDir, stdio: 'ignore' });
+      await dockerBuild.execAsync(`docker build -t ${IMAGE_TAG} .`, { cwd: deployDir });
     } catch (err) {
-      throw new Error(`Falha no docker build do deploy: ${err.message}`);
+      const detail = String(err.stderr || err.stdout || err.message || '').slice(-1500);
+      throw new Error(`Falha no docker build do deploy: ${detail || err.message}`);
     }
 
     const docker = getDocker();
@@ -291,7 +292,7 @@ async function startDeploy({ deployDir, hostPort, env = {}, orchestrator }) {
     'info'
   );
   try {
-    execSync('npm install --omit=dev', { cwd: deployDir, stdio: 'ignore' });
+    await dockerBuild.execAsync('npm install --omit=dev', { cwd: deployDir, ignoreOutput: true });
   } catch (e) {
     orchestrator?.log?.('devops', `Aviso do npm install: ${e.message}`, 'warning');
   }

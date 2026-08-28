@@ -4,8 +4,10 @@ const path = require('path');
 const Docker = require('dockerode');
 const config = require('../lib/config');
 const dockerBuild = require('../lib/dockerBuild');
+const { scanEnvVarNames } = require('../lib/envScan');
 
 const needsCompile = dockerBuild.needsCompile;
+const execAsync = dockerBuild.execAsync;
 
 /** Cadeia comum (dockerBuild) + fallbacks específicos de sandbox: src/index.ts (tsx) e um
  * palpite final incondicional (node server.js), já que a sandbox sempre precisa de "algo"
@@ -57,7 +59,12 @@ async function waitForHttp(baseUrl, { attempts = 20, delayMs = 1000, orchestrato
   );
 }
 
-function normalizeSandboxEnvFile(sandboxPath, port) {
+function placeholderFor(key) {
+  const isSecretLike = /SECRET|KEY|TOKEN|PASSWORD/i.test(key);
+  return isSecretLike ? `sandbox_only_${key.toLowerCase()}_32chars_minimum_xx` : 'sandbox-value';
+}
+
+function normalizeSandboxEnvFile(sandboxPath, port, files) {
   const envPath = path.join(sandboxPath, '.env');
   const lines = fs.existsSync(envPath)
     ? fs.readFileSync(envPath, 'utf8').split(/\r?\n/)
@@ -68,16 +75,40 @@ function normalizeSandboxEnvFile(sandboxPath, port) {
     const i = line.indexOf('=');
     map.set(line.slice(0, i).trim(), line.slice(i + 1));
   }
+
+  // .env.example declara quais variáveis o projeto espera (só os nomes importam aqui;
+  // os valores de exemplo não são reais). Qualquer uma ainda sem valor ganha um placeholder
+  // só-para-sandbox — sem isso o container crasha na primeira leitura de process.env que o
+  // projeto exigir e não estiver na lista fixa abaixo (ex.: SESSION_SECRET, API_TOKEN etc.).
+  const examplePath = path.join(sandboxPath, '.env.example');
+  if (fs.existsSync(examplePath)) {
+    const exampleLines = fs.readFileSync(examplePath, 'utf8').split(/\r?\n/);
+    for (const line of exampleLines) {
+      if (!line || line.trim().startsWith('#') || !line.includes('=')) continue;
+      const key = line.slice(0, line.indexOf('=')).trim();
+      if (!key || map.has(key)) continue;
+      map.set(key, placeholderFor(key));
+    }
+  }
+
+  // Nem todo projeto gerado inclui .env.example (só o deploy final garante um) — varrer o
+  // código cobre o caso comum de a cura/correção introduzir uma variável nova (ex.:
+  // SESSION_SECRET) sem nunca declará-la em lugar nenhum.
+  for (const key of scanEnvVarNames(files)) {
+    if (map.has(key)) continue;
+    map.set(key, placeholderFor(key));
+  }
+
   map.set('PORT', String(port));
   map.set('HOST', '0.0.0.0');
   if (!map.has('NODE_ENV')) map.set('NODE_ENV', 'test');
-  if (!map.has('EMBEDDING_PROVIDER')) map.set('EMBEDDING_PROVIDER', 'local');
   if (!map.has('JWT_SECRET')) map.set('JWT_SECRET', 'sandbox_only_secret_forjaia_32chars_min');
   if (String(map.get('JWT_SECRET') || '').length < 32) {
     map.set('JWT_SECRET', 'sandbox_only_secret_forjaia_32chars_min');
   }
   const body = [...map.entries()].map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
   fs.writeFileSync(envPath, body, 'utf8');
+  return map;
 }
 
 async function readContainerTail(container, max = 4000) {
@@ -190,7 +221,7 @@ class SandboxRunner {
     }
 
     const start = detectStartCommand(this.sandboxPath);
-    normalizeSandboxEnvFile(this.sandboxPath, 3000);
+    const envMap = normalizeSandboxEnvFile(this.sandboxPath, 3000, files);
     // Evita que o Dockerfile do projeto (porta/CMD diferentes) quebre o mapeamento 3000→host
     try {
       fs.unlinkSync(path.join(this.sandboxPath, 'Dockerfile'));
@@ -208,7 +239,7 @@ class SandboxRunner {
       } else {
         orchestrator.log('devops', 'Docker opcional: usando sandbox local (mais estável).', 'info');
       }
-      return this.startChildProcess(orchestrator, start);
+      return this.startChildProcess(orchestrator, start, files);
     }
 
     if (!hasDocker) {
@@ -233,11 +264,7 @@ class SandboxRunner {
       }
 
       try {
-        execSync('docker build -t forja-temp-sandbox .', {
-          cwd: this.sandboxPath,
-          stdio: 'pipe',
-          encoding: 'utf8'
-        });
+        await execAsync('docker build -t forja-temp-sandbox .', { cwd: this.sandboxPath });
       } catch (buildErr) {
         const detail = String(buildErr.stderr || buildErr.stdout || buildErr.message || '').slice(-1500);
         throw new Error(`docker build falhou: ${detail || buildErr.message}`);
@@ -254,14 +281,7 @@ class SandboxRunner {
           NanoCpus: 2e9,
           NetworkMode: 'bridge'
         },
-        Env: [
-          'PORT=3000',
-          'HOST=0.0.0.0',
-          'NODE_ENV=test',
-          'JWT_SECRET=sandbox_only_secret_forjaia_32chars_min',
-          'EMBEDDING_PROVIDER=local',
-          'DB_PATH=./data/rag.db'
-        ]
+        Env: [...envMap.entries()].map(([k, v]) => `${k}=${v}`)
       });
 
       await this.container.start();
@@ -311,33 +331,33 @@ class SandboxRunner {
         throw new Error(`Falha na sandbox Docker: ${msg}`);
       }
       orchestrator.log('devops', `Falha no Docker (${err.message}); usando processo local.`, 'warning');
-      return this.startChildProcess(orchestrator, start);
+      return this.startChildProcess(orchestrator, start, files);
     }
   }
 
-  startChildProcess(orchestrator, start) {
+  async startChildProcess(orchestrator, start, files) {
     const cmd = start || detectStartCommand(this.sandboxPath);
-    normalizeSandboxEnvFile(this.sandboxPath, this.hostPort);
+    const envMap = normalizeSandboxEnvFile(this.sandboxPath, this.hostPort, files);
     orchestrator.log('devops', 'Iniciando sandbox local em subprocesso Node...', 'info');
     const compile = needsCompile(this.sandboxPath, cmd);
     try {
-      execSync(compile ? 'npm install' : 'npm install --omit=dev', {
+      await execAsync(compile ? 'npm install' : 'npm install --omit=dev', {
         cwd: this.sandboxPath,
-        stdio: 'ignore'
+        ignoreOutput: true
       });
     } catch {
       try {
-        execSync('npm install', { cwd: this.sandboxPath, stdio: 'ignore' });
+        await execAsync('npm install', { cwd: this.sandboxPath, ignoreOutput: true });
       } catch {
         orchestrator.log('devops', 'Aviso do npm install na sandbox local', 'warning');
       }
     }
     if (compile) {
       try {
-        execSync('npm run build', { cwd: this.sandboxPath, stdio: 'ignore' });
+        await execAsync('npm run build', { cwd: this.sandboxPath, ignoreOutput: true });
       } catch {
         try {
-          execSync('npx tsc', { cwd: this.sandboxPath, stdio: 'ignore' });
+          await execAsync('npx tsc', { cwd: this.sandboxPath, ignoreOutput: true });
         } catch (e) {
           orchestrator.log('devops', `Build local da sandbox falhou: ${e.message}`, 'warning');
         }
@@ -346,17 +366,14 @@ class SandboxRunner {
 
     return new Promise((resolve, reject) => {
       try {
+        // Só PATH do processo do ForjaIA (pra achar node/npm) + o .env já resolvido pro
+        // projeto sandboxed — nunca ...process.env inteiro, que vazaria os segredos do
+        // próprio servidor ForjaIA (tokens de API, chaves de LLM) pro processo do projeto.
         this.childProcess = spawn(cmd.cmd, cmd.args, {
           cwd: this.sandboxPath,
           env: {
-            ...process.env,
             PATH: process.env.PATH,
-            PORT: String(this.hostPort),
-            HOST: '127.0.0.1',
-            NODE_ENV: 'test',
-            JWT_SECRET: 'sandbox_only_secret_forjaia_32chars_min',
-            EMBEDDING_PROVIDER: 'local',
-            DB_PATH: './data/rag.db'
+            ...Object.fromEntries(envMap)
           }
         });
 

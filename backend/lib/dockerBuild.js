@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 
 /**
  * Peças compartilhadas entre sandbox/runner.js (QA/Security) e lib/deployRuntime.js
@@ -81,10 +82,45 @@ CMD ${cmdJson}
 `;
 }
 
+/**
+ * Substituto assíncrono de execSync (ver ADR-006) — `docker build`/`npm install` reais
+ * podem levar dezenas de segundos a minutos; execSync bloqueia o event loop inteiro
+ * durante esse tempo, impedindo o control plane de responder a QUALQUER requisição.
+ * Roda via shell (mesmo comportamento de execSync: aceita string com pipes/redirects).
+ */
+function execAsync(cmd, { cwd, ignoreOutput = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, { cwd, shell: true });
+    let stdout = '';
+    let stderr = '';
+    if (!ignoreOutput) {
+      child.stdout?.on('data', (d) => {
+        stdout += d;
+      });
+      child.stderr?.on('data', (d) => {
+        stderr += d;
+      });
+    }
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        const err = new Error(`Comando falhou (código ${code}): ${cmd}`);
+        err.stdout = stdout;
+        err.stderr = stderr;
+        err.code = code;
+        reject(err);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
 module.exports = {
   readPackageJson,
   detectStartCommand,
   needsCompile,
   needsNativeBuild,
-  buildDockerfile
+  buildDockerfile,
+  execAsync
 };
