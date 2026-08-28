@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+
+process.env.FORJA_DB_PATH = process.env.FORJA_DB_PATH || path.join(os.tmpdir(), `forja-dockerbuild-db-${Date.now()}.db`);
+
 const { detectStartCommand, needsCompile, needsNativeBuild, buildDockerfile } = require('../lib/dockerBuild');
 
 function tmpDir() {

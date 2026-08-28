@@ -6,6 +6,7 @@ const os = require('os');
 
 process.env.FORJA_API_TOKEN = process.env.FORJA_API_TOKEN || 'test-token-forja';
 process.env.FORJA_WORKSPACE_ROOT = process.env.FORJA_WORKSPACE_ROOT || fs.mkdtempSync(path.join(os.tmpdir(), 'forja-ws-'));
+process.env.FORJA_DB_PATH = process.env.FORJA_DB_PATH || path.join(os.tmpdir(), `forja-cache-${Date.now()}.db`);
 process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
 
 function fresh(mod) {

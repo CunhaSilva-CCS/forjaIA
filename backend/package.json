@@ -8,7 +8,7 @@
     "start": "node server.js",
     "dev:stable": "node server.js",
     "dev:watch": "nodemon --watch server.js --watch agent --watch lib --ignore tmp-sandbox --ignore workspace --ignore dev --ignore data --ignore db --delay 2000 server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "keywords": [],
   "author": "",

@@ -1,7 +1,10 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('path');
+const os = require('os');
 
 process.env.FORJA_API_TOKEN = process.env.FORJA_API_TOKEN || 'test-token-forja';
+process.env.FORJA_DB_PATH = process.env.FORJA_DB_PATH || path.join(os.tmpdir(), `forja-llmcursor-${Date.now()}.db`);
 
 describe('validação do provedor cursor', () => {
   it('aceita llmProvider "cursor" e cursorModel no runConfig', () => {

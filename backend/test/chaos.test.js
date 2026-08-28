@@ -1,5 +1,9 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('path');
+const os = require('os');
+
+process.env.FORJA_DB_PATH = process.env.FORJA_DB_PATH || path.join(os.tmpdir(), `forja-chaos-${Date.now()}.db`);
 
 function fresh(mod) {
   delete require.cache[require.resolve(mod)];
