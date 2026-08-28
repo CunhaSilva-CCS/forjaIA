@@ -1,10 +1,23 @@
-import { Check, Play, Square } from 'lucide-react';
+import { Check, FilePlus2, Play, Square } from 'lucide-react';
 import type { AppState } from '../hooks/useForjaApp';
 
 export function OrderPanel({ s }: { s: AppState }) {
   return (
     <div className="forge-panel prompt-panel">
-      <h3 className="panel-title">Ordem</h3>
+      <div className="panel-head-row">
+        <h3 className="panel-title" style={{ marginBottom: 0 }}>
+          Ordem
+        </h3>
+        <button
+          type="button"
+          className="btn-tiny"
+          onClick={s.resetWorkspace}
+          disabled={s.isExecuting}
+          title="Limpar a tela e começar outro projeto (ou escolher um projeto existente abaixo)"
+        >
+          <FilePlus2 size={12} /> Novo
+        </button>
+      </div>
       <textarea
         value={s.prompt}
         onChange={(e) => s.setPrompt(e.target.value)}

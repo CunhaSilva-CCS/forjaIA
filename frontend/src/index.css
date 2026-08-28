@@ -295,6 +295,9 @@ header.glass-panel {
 }
 
 .btn-tiny {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 0.68rem;
   font-weight: 600;
   padding: 4px 8px;

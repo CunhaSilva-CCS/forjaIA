@@ -597,6 +597,38 @@ export function useForjaApp() {
     }
   };
 
+  /** Limpa a área de trabalho pra começar outro projeto do zero — não mexe no workspace/histórico
+   * no servidor, só reseta o que a tela mostra (prompt, destino, projeto selecionado, run atual). */
+  const resetWorkspace = () => {
+    if (isExecuting) return;
+    setPrompt('');
+    setTargetPath('deployed');
+    setSelectedProjectId(null);
+    setActiveRunTargetPath(null);
+    setUserErrorReport('');
+    setCurrentRunId(null);
+    setTaskStatus(null);
+    setPipelineMode('forge');
+    setLogs([]);
+    setPendingNextStage(null);
+    setApprovalMessage(null);
+    setHealingAttempts(0);
+    setSelectedFilePath(null);
+    setActiveAgent(null);
+    setFiles([]);
+    setAdrs([]);
+    setTests([]);
+    setSecurityIssues([]);
+    setDiagnosis(null);
+    setPerformanceMetrics(null);
+    setChaosEvents([]);
+    setDeployUrl(null);
+    setTokenStats(emptyTokenStats());
+    setAgentStates(idleAgents());
+    setCurrentTab('terminal');
+    showToast('Área de trabalho limpa — pronta para um novo projeto');
+  };
+
   const handleCancel = async () => {
     try {
       await api.cancel();
@@ -809,6 +841,7 @@ export function useForjaApp() {
     handleValidateExisting,
     handleApprove,
     handleCancel,
+    resetWorkspace,
     handleUserReport,
     userErrorReport,
     setUserErrorReport,
