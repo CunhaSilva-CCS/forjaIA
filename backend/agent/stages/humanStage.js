@@ -1,14 +1,40 @@
+function readDeployedEnv(runConfig) {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const { resolveWithinWorkspace } = require('../../lib/paths');
+    const relativeTarget = runConfig.targetPath || runConfig.sourcePath || 'deployed';
+    const envPath = path.join(resolveWithinWorkspace(relativeTarget), '.env');
+    if (!fs.existsSync(envPath)) return {};
+    const map = {};
+    for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      if (!line || line.trim().startsWith('#') || !line.includes('=')) continue;
+      const i = line.indexOf('=');
+      map[line.slice(0, i).trim()] = line.slice(i + 1);
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
   const human = require('../human');
   orchestrator.broadcast('agent-active', { agent: 'human' });
   orchestrator.log('human', 'Iniciando teste humano in loco no deploy…', 'info');
 
+  // O app implantado pode exigir uma credencial gerada pela própria forja (ex.: API_TOKEN
+  // aleatório) — sem isso o "humano" só consegue inventar um valor plausível, que a API
+  // corretamente rejeita, gerando um falso "problema" em cascata a cada ciclo.
+  const deployedEnv = readDeployedEnv(runConfig);
+
   const humanReport = await human.execute(
     orchestrator.currentTask.deployUrl,
     orchestrator.currentTask.files,
     runConfig,
-    orchestrator
+    orchestrator,
+    deployedEnv
   );
   orchestrator.throwIfAborted();
 

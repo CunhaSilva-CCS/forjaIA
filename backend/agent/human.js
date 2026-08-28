@@ -61,11 +61,34 @@ function summarizeHtml(html) {
   };
 }
 
-async function httpStep(base, step, orchestrator) {
+/** Jar mínimo pra manter a sessão entre passos — cada httpStep() usava fetch() isolado, então
+ * um cookie de sessão setado no login nunca chegava aos passos seguintes (a API rejeitava
+ * tudo depois do login como se nunca tivesse autenticado). */
+function makeCookieJar() {
+  const jar = new Map();
+  return {
+    header() {
+      return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+    },
+    absorb(res) {
+      const setCookies =
+        typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
+      for (const raw of setCookies) {
+        const pair = raw.split(';', 1)[0];
+        const i = pair.indexOf('=');
+        if (i > 0) jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
+      }
+    }
+  };
+}
+
+async function httpStep(base, step, orchestrator, cookieJar) {
   const method = String(step.method || step.action || 'GET').toUpperCase();
   const path = step.path || '/';
   const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`;
   const headers = { Accept: 'application/json, text/html, */*', ...(step.headers || {}) };
+  const cookieHeader = cookieJar?.header();
+  if (cookieHeader) headers.Cookie = cookieHeader;
   let body;
   if (step.body != null && !['GET', 'HEAD'].includes(method)) {
     if (typeof step.body === 'string') {
@@ -84,6 +107,7 @@ async function httpStep(base, step, orchestrator) {
       body,
       signal: AbortSignal.timeout(Number(step.timeoutMs) || STEP_TIMEOUT_MS)
     });
+    cookieJar?.absorb(res);
     const contentType = res.headers.get('content-type') || '';
     const raw = await res.text();
     let json = null;
@@ -294,13 +318,21 @@ function heuristicJourney(surface) {
   };
 }
 
-async function planHumanJourney({ deployUrl, surface, files, runConfig, orchestrator }) {
+async function planHumanJourney({ deployUrl, surface, files, runConfig, orchestrator, credentials }) {
+  const hasCredentials = credentials && Object.keys(credentials).length > 0;
   const system = composeSystemPrompt(
     'human',
     `Você É um humano real (não um bot de monitoramento) usando o produto implantado.
 Planeje um roteiro IN LOCO curto para validar o fluxo e o funcionamento do projeto.
 Cada passo deve ser executável via HTTP (o que a UI faria ao clicar/enviar).
 Não invente endpoints inexistentes. Prefira o caminho feliz do usuário + 1 checagem negativa leve se fizer sentido.
+${
+  hasCredentials
+    ? `O deploy real tem estas variáveis de ambiente (userPayload.knownCredentials) — se o fluxo exigir login/API
+key, use o valor REAL que fizer sentido pro campo que a rota espera (nunca invente um valor de teste tipo
+"test-token"); nunca envie SECRET de assinatura de sessão/JWT como se fosse credencial de usuário.`
+    : ''
+}
 Retorne APENAS JSON:
 {
   "persona": "quem você é nesta sessão",
@@ -329,6 +361,7 @@ Máximo ${MAX_STEPS} passos. Sem autenticação inventada se o app não exigir.`
       user: JSON.stringify({
         deployUrl,
         surface,
+        knownCredentials: credentials || {},
         fileMap: (files || []).slice(0, 35).map((f) => ({
           path: f.path,
           preview: String(f.content || '').slice(0, 900)
@@ -454,8 +487,16 @@ async function discoverSurface(deployUrl, files, orchestrator) {
 }
 
 module.exports = {
-  execute: async (deployUrl, files, runConfig, orchestrator) => {
+  execute: async (deployUrl, files, runConfig, orchestrator, deployedEnv = {}) => {
     orchestrator.throwIfAborted();
+    // Só credenciais plausivelmente fornecidas pelo cliente (API_TOKEN/API_KEY) — nunca
+    // segredos de assinatura interna (JWT_SECRET/SESSION_SECRET), que um usuário real nunca
+    // digitaria numa tela de login.
+    const credentials = Object.fromEntries(
+      Object.entries(deployedEnv || {}).filter(
+        ([k]) => /TOKEN|KEY/i.test(k) && !/JWT_SECRET|SESSION_SECRET/i.test(k)
+      )
+    );
     announceThinking(orchestrator, 'human');
     orchestrator.log(
       'human',
@@ -491,7 +532,8 @@ module.exports = {
       surface,
       files,
       runConfig,
-      orchestrator
+      orchestrator,
+      credentials
     });
     orchestrator.throwIfAborted();
 
@@ -503,11 +545,12 @@ module.exports = {
 
     const transcript = [];
     const stepResults = [];
+    const cookieJar = makeCookieJar();
     for (const step of plan.steps) {
       orchestrator.throwIfAborted();
       const asHuman = step.asHuman || `Executo ${step.action || 'GET'} ${step.path}`;
       transcript.push({ role: 'human', text: asHuman });
-      const result = await httpStep(baseUrl(deployUrl), step, orchestrator);
+      const result = await httpStep(baseUrl(deployUrl), step, orchestrator, cookieJar);
       stepResults.push({ step, result });
       transcript.push({
         role: 'system',
