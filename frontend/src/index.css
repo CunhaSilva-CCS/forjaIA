@@ -94,7 +94,6 @@ body {
   overflow: hidden;
 }
 
-.glass-panel,
 .forge-panel {
   background: var(--panel);
   border: 1px solid var(--panel-edge);
@@ -166,11 +165,6 @@ header.app-header.forge-panel::before {
   margin: 4px 0 0;
 }
 
-.log-line.compact {
-  padding: 2px 0;
-  font-size: 0.72rem;
-}
-
 .btn-ghost-full {
   margin-top: 6px;
   width: 100%;
@@ -198,8 +192,7 @@ header.app-header.forge-panel::before {
   margin-top: 8px;
 }
 
-header.app-header,
-header.glass-panel {
+header.app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -263,30 +256,6 @@ header.glass-panel {
   color: var(--ink-soft);
 }
 
-.status-indicator {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.status-indicator.active {
-  background: var(--success);
-  box-shadow: 0 0 0 3px rgba(var(--success-rgb), 0.2);
-}
-
-.status-badge.model-status-badge.ok {
-  border-color: rgba(var(--success-rgb), 0.45);
-  color: var(--success);
-  background: rgba(var(--success-rgb), 0.1);
-}
-
-.status-badge.model-status-badge.bad {
-  border-color: rgba(var(--danger-rgb), 0.45);
-  color: var(--danger);
-  background: rgba(var(--danger-rgb), 0.08);
-}
-
 .service-header-actions {
   display: inline-flex;
   gap: 4px;
@@ -315,79 +284,6 @@ header.glass-panel {
 .btn-tiny:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.service-panel {
-  flex: 0 0 auto !important;
-}
-
-.service-panel-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  margin: 0 0 8px;
-}
-
-.service-panel-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.service-panel-actions button {
-  font-size: 0.72rem;
-  padding: 5px 8px;
-}
-
-.model-alert {
-  border-radius: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--panel-edge);
-  background: var(--bg-sunken);
-  margin-bottom: 4px;
-}
-
-.model-alert.ok {
-  border-color: rgba(var(--success-rgb), 0.5);
-  background: rgba(var(--success-rgb), 0.12);
-}
-
-.model-alert.bad {
-  border-color: rgba(var(--danger-rgb), 0.45);
-  background: rgba(var(--danger-rgb), 0.1);
-}
-
-.model-alert.pending {
-  border-color: rgba(180, 140, 60, 0.4);
-  background: rgba(180, 140, 60, 0.08);
-}
-
-.model-alert-title {
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  margin-bottom: 4px;
-}
-
-.model-alert.ok .model-alert-title {
-  color: var(--success);
-}
-
-.model-alert.bad .model-alert-title {
-  color: var(--danger);
-}
-
-.model-alert-body {
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-
-.model-alert-detail {
-  margin: 6px 0 0;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  color: var(--ink-soft);
 }
 
 .dashboard-grid {
@@ -450,8 +346,7 @@ header.glass-panel {
 
 .prompt-panel,
 .agents-board,
-.col-right > .forge-panel,
-.col-right > .glass-panel {
+.col-right > .forge-panel {
   padding: 10px 12px;
 }
 
@@ -523,10 +418,6 @@ textarea {
 
 .prompt-panel > textarea {
   height: 72px;
-}
-
-.user-report-field textarea {
-  height: 52px;
 }
 
 select {
@@ -914,15 +805,6 @@ a:focus-visible {
   text-transform: none;
 }
 
-.agent-state {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  flex-shrink: 0;
-}
-
 .status-line {
   margin-top: 6px;
   font-size: 0.7rem;
@@ -1218,41 +1100,6 @@ a:focus-visible {
   margin-bottom: 0;
 }
 
-.token-model-tag {
-  max-width: 58%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--ink-soft);
-  padding: 3px 7px;
-  border-radius: 6px;
-  border: 1px solid var(--panel-edge);
-  background: var(--bg-sunken);
-}
-
-.token-section {
-  padding: 10px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.token-section:first-of-type {
-  border-top: none;
-  padding-top: 4px;
-}
-
-.token-section-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 0.78rem;
-  color: var(--ink-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 2px;
-}
-
 .token-bar.stacked .seg.prompt {
   background: linear-gradient(90deg, var(--ember-deep), var(--ember));
 }
@@ -1306,14 +1153,6 @@ a:focus-visible {
   font-family: var(--font-mono);
   font-size: 0.78rem;
   color: var(--ink);
-}
-
-.token-legend {
-  display: flex;
-  gap: 14px;
-  margin-top: 10px;
-  font-size: 0.72rem;
-  color: var(--muted);
 }
 
 .llm-usage-table {
@@ -1374,23 +1213,6 @@ a:focus-visible {
 
 .llm-usage-reset {
   font-size: 0.65rem;
-}
-
-.token-legend .dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 5px;
-  vertical-align: middle;
-}
-
-.token-legend .dot.prompt {
-  background: var(--ember);
-}
-
-.token-legend .dot.completion {
-  background: var(--success);
 }
 
 .tokens-summary {
@@ -1608,10 +1430,6 @@ a:focus-visible {
   flex-shrink: 0;
 }
 
-.col-right .token-section {
-  padding: 6px 0;
-}
-
 .col-right .token-kv {
   gap: 4px 6px;
 }
@@ -1622,23 +1440,6 @@ a:focus-visible {
 
 .col-right ul {
   max-height: 96px !important;
-}
-
-.user-report-row {
-  display: flex;
-  gap: 6px;
-  align-items: stretch;
-}
-
-.user-report-row textarea {
-  flex: 1;
-  height: 38px;
-  min-height: 38px;
-}
-
-.user-report-row button {
-  flex-shrink: 0;
-  white-space: nowrap;
 }
 
 .deploy-card {
@@ -1686,14 +1487,6 @@ a:focus-visible {
   color: var(--ink-soft);
   border-color: rgba(var(--ember-rgb), 0.35);
   background: rgba(var(--ember-rgb), 0.1);
-}
-
-.deploy-label {
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 6px;
 }
 
 .deploy-url {
@@ -1777,28 +1570,6 @@ a:focus-visible {
   margin-bottom: 0;
 }
 
-.deploy-idle-glow {
-  position: absolute;
-  width: 90px;
-  height: 90px;
-  right: -20px;
-  top: -30px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--ember-glow), transparent 70%);
-  animation: deploy-breathe 3.2s ease-in-out infinite;
-}
-
-@keyframes deploy-breathe {
-  0%,
-  100% {
-    opacity: 0.45;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 0.9;
-    transform: scale(1.08);
-  }
-}
 
 .diagnosis-summary {
   border-color: rgba(var(--ember-rgb), 0.4);
@@ -1930,7 +1701,6 @@ a:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .rail-step.active .rail-node,
   .engine-pulse.live,
-  .deploy-idle-glow,
   * {
     animation: none !important;
     transition: none !important;

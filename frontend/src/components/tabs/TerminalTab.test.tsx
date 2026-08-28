@@ -49,6 +49,30 @@ describe('TerminalTab', () => {
     expect(screen.queryByText(/TSError: Unable to compile TypeScript/)).not.toBeInTheDocument();
   });
 
+  it('achado real: uma run nova não herda o estado de "expandido" só por reaproveitar o mesmo índice', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <TerminalTab s={makeState([{ agent: 'qa', message: LONG_STACK_TRACE, type: 'error', timestamp: '2026-01-01T00:00:00.000Z' }])} />
+    );
+    await user.click(screen.getByRole('button', { name: /ver stack trace completo/ }));
+    expect(screen.getByRole('button', { name: 'recolher' })).toBeInTheDocument();
+
+    // Mensagem DIFERENTE (outra run), mas no MESMO índice 0 do array de logs — antes desta
+    // correção, o estado de expandido era chaveado por índice, então essa nova mensagem
+    // renderizava pré-expandida sem nenhum clique.
+    const OTHER_LONG_MESSAGE = LONG_STACK_TRACE.replace('userController', 'productController').replace(
+      'sandbox para testes',
+      'sandbox pra outra run'
+    );
+    rerender(
+      <TerminalTab
+        s={makeState([{ agent: 'security', message: OTHER_LONG_MESSAGE, type: 'error', timestamp: '2026-02-02T00:00:00.000Z' }])}
+      />
+    );
+    expect(screen.getByRole('button', { name: /ver stack trace completo/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'recolher' })).not.toBeInTheDocument();
+  });
+
   it('mostra a mensagem do usuário com a tag "você"', () => {
     render(
       <TerminalTab

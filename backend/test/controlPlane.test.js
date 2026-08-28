@@ -314,6 +314,61 @@ describe('human heuristic journey', () => {
   });
 });
 
+describe('human gate de aprovação — verdict do senior review (achado real)', () => {
+  it('reprova mesmo com o fluxo limpo quando o verdict vem em formatação diferente ("Reprovado", maiúsculo)', async () => {
+    const server = require('http').createServer((req, res) => {
+      const url = req.url || '/';
+      if (url === '/api/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<html><head><title>Demo</title></head><body><script>fetch("/api/health")</script></body></html>');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+
+    delete require.cache[require.resolve('../lib/llm')];
+    delete require.cache[require.resolve('../lib/seniorEngineer')];
+    delete require.cache[require.resolve('../agent/human')];
+    const llm = require('../lib/llm');
+    const original = llm.generateJson;
+    let callCount = 0;
+    llm.generateJson = async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        // Primeira chamada é o plano da jornada — força o caminho heurístico (mesmo padrão do
+        // teste "human heuristic journey" acima), pra isolar só o gate de aprovação final.
+        throw new Error('forced heuristic for planning');
+      }
+      // Segunda chamada é a revisão sênior (thinkAsSenior) — verdict de rejeição, mas NÃO o
+      // literal exato 'reprovado' que o código antigo comparava (era case-sensitive e exigia
+      // igualdade estrita). Antes desta correção, isso passava batido mesmo sendo uma rejeição.
+      return {
+        data: { verdict: 'Reprovado', summary: 'Rejeitado por inconsistência de UX', issues: [] },
+        tokens: null,
+        provider: 'test',
+        model: 'test'
+      };
+    };
+    const human = require('../agent/human');
+    const orch = { log() {}, throwIfAborted() {}, getSignal: () => undefined, recordTokens() {} };
+
+    try {
+      const report = await human.execute(
+        `http://127.0.0.1:${port}`,
+        [{ path: 'src/routes.js', content: "router.get('/health');" }],
+        { llmProvider: 'ollama', useOllama: true, ollamaModel: 'none' },
+        orch
+      );
+      assert.equal(report.passed, false, 'verdict "Reprovado" (maiúsculo) deveria reprovar mesmo com o fluxo limpo');
+    } finally {
+      llm.generateJson = original;
+      server.close();
+    }
+  });
+});
+
 describe('human httpStep — bloqueio de SSRF/exfiltração de credencial (achado real)', () => {
   it('segue path relativo normalmente, anexando cookie', async () => {
     const server = require('http').createServer((req, res) => {

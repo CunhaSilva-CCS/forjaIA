@@ -106,7 +106,11 @@ function resolveReviewProvider(runConfig = {}) {
   const primary = resolveProvider(runConfig);
   const balanced = pickBalancedProvider({ exclude: [primary] });
   if (balanced) return balanced;
-  return primary === 'ollama' ? primary : 'ollama';
+  // Achado real: `primary === 'ollama' ? primary : 'ollama'` sempre devolvia 'ollama' — o
+  // ternário estava invertido. Sem provedor alternativo configurado, isso forçava toda revisão
+  // sênior a tentar Ollama primeiro mesmo sem ele estar rodando/configurado, contradizendo o
+  // próprio comentário desta função ("cai pro mesmo provedor da run").
+  return primary;
 }
 
 /** Modelos Gemini descontinuados → sucessor recomendado pela API. */

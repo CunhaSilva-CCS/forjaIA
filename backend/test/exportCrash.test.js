@@ -75,3 +75,64 @@ describe('streamRunExport — erro do archiver não derruba o processo (achado r
     }
   });
 });
+
+/**
+ * Achado real (zip-slip defensivo): `file.path` vem direto do banco (run.files, gerado pelo
+ * LLM) sem a mesma checagem de traversal que devops.js aplica ao escrever em disco. Sem
+ * sanitização, um path como "../../../etc/cron.d/x" viraria o nome de uma entrada do zip —
+ * quem extrai esse download com uma ferramenta ingênua escreveria fora do diretório de destino.
+ */
+describe('streamRunExport — sanitiza path de traversal nas entradas do zip (achado real)', () => {
+  it('ignora arquivo com path tentando escapar do diretório code/, mantém os demais', async () => {
+    const archiverPath = require.resolve('archiver');
+    const originalEntry = require.cache[archiverPath];
+
+    const appended = [];
+    const fakeArchive = new EventEmitter();
+    fakeArchive.pipe = () => {};
+    fakeArchive.append = (content, opts) => {
+      appended.push(opts.name);
+    };
+    fakeArchive.abort = () => {};
+    fakeArchive.finalize = () => {
+      process.nextTick(() => fakeArchive.emit('end'));
+    };
+
+    require.cache[archiverPath] = {
+      id: archiverPath,
+      filename: archiverPath,
+      loaded: true,
+      exports: () => fakeArchive
+    };
+
+    const db = fresh('../lib/db');
+    const run = db.runs.create({ prompt: 'zip slip test' });
+    db.runs.update(run.id, {
+      files: [
+        { path: 'src/index.js', content: 'ok' },
+        { path: '../../../etc/cron.d/malicioso', content: 'evil' },
+        { path: '/etc/passwd', content: 'evil-absolute' }
+      ]
+    });
+
+    const { streamRunExport } = fresh('../lib/export');
+    const res = new EventEmitter();
+    res.setHeader = () => {};
+    res.destroy = () => {};
+
+    try {
+      await streamRunExport(run.id, res);
+      assert.ok(appended.includes('code/src/index.js'), 'arquivo legítimo deveria estar no zip');
+      assert.ok(
+        !appended.some((n) => n.includes('..') || n.includes('/etc/')),
+        `entrada de path suspeito vazou pro zip: ${JSON.stringify(appended)}`
+      );
+    } finally {
+      if (originalEntry) {
+        require.cache[archiverPath] = originalEntry;
+      } else {
+        delete require.cache[archiverPath];
+      }
+    }
+  });
+});

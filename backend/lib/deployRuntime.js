@@ -1,5 +1,6 @@
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const Docker = require('dockerode');
 const config = require('./config');
@@ -134,9 +135,16 @@ async function stopDeploy(orchestrator) {
   }
   if (active.childProcess) {
     try {
-      active.childProcess.kill('SIGTERM');
+      // Spawnado detached (grupo de processos próprio, ver spawn() abaixo) — matar só o PID
+      // direto deixaria um `npm start` órfão (o processo real muitas vezes é um neto). PID
+      // negativo mata o grupo inteiro, mesmo padrão usado em lib/mobileDeploy.js.
+      process.kill(-active.childProcess.pid, 'SIGTERM');
     } catch {
-      // ignore
+      try {
+        active.childProcess.kill('SIGTERM');
+      } catch {
+        // já pode ter morrido
+      }
     }
     active.childProcess = null;
   }
@@ -311,8 +319,16 @@ async function startDeploy({ deployDir, hostPort, env = {}, orchestrator }) {
       resolve(value);
     };
 
+    // detached:true + stdio num arquivo real (não pipe) — mesmo bug documentado no ADR-014 pro
+    // Metro do expo run:ios: um pipe ligado ao processo pai morre quando o pai sai, e o servidor
+    // do ForjaIA é reiniciado com frequência durante desenvolvimento. Sem isso, o app "deployado"
+    // nesse caminho sem Docker morria junto com um restart do próprio ForjaIA.
+    const logPath = path.join(os.tmpdir(), `forja-deploy-run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`);
+    const logFd = fs.openSync(logPath, 'a');
     active.childProcess = spawn(start.cmd, start.args, {
       cwd: deployDir,
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
       env: {
         PATH: process.env.PATH,
         ...env,
@@ -321,9 +337,9 @@ async function startDeploy({ deployDir, hostPort, env = {}, orchestrator }) {
         NODE_ENV: env.NODE_ENV || 'production'
       }
     });
+    fs.closeSync(logFd);
     active.type = 'child_process';
-    active.childProcess.stdout.on('data', (data) => console.log(`[DEPLOY] ${data}`));
-    active.childProcess.stderr.on('data', (data) => console.error(`[DEPLOY] ${data}`));
+    active.deployLogPath = logPath;
     active.childProcess.on('error', fail);
     active.childProcess.on('exit', (code, signal) => {
       fail(new Error(`Processo de deploy encerrou cedo (code=${code}, signal=${signal})`));

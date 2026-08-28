@@ -124,11 +124,16 @@ if (config.isProduction) {
     );
   }
   const provider = config.defaultLlmProvider;
+  // ADR-007: Cursor autentica via sessão local (`cursor-agent login`), sem precisar de
+  // CURSOR_API_KEY — igual a como 'ollama' não exige chave. Sem esse caso, configurar
+  // FORJA_LLM_PROVIDER=cursor como default de produção travava o startup mesmo com uma sessão
+  // local válida.
   const hasKey =
     (provider === 'gemini' && config.geminiApiKey) ||
     (provider === 'openai' && config.openaiApiKey) ||
     (provider === 'claude' && config.anthropicApiKey) ||
-    provider === 'ollama';
+    provider === 'ollama' ||
+    provider === 'cursor';
   if (!hasKey) {
     throw new Error(
       `Produção: configure a chave do provedor "${provider}" ou use FORJA_LLM_PROVIDER=ollama.`

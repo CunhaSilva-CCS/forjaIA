@@ -21,3 +21,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-017 — Uso equilibrado entre provedores via dado real (não saldo de crédito)](017-usage-credit-ui.md)
 - [ADR-018 — Deploy mobile também para macOS (Catalyst) e Windows (GitHub Actions)](018-mac-and-windows-deploy.md)
 - [ADR-019 — Pente fino: 2 críticos + 4 altos corrigidos numa auditoria dedicada](019-fine-tooth-comb-review.md)
+- [ADR-020 — Restante do pente fino: os ~13 achados médios/baixos do ADR-019](020-remaining-findings-cleanup.md)

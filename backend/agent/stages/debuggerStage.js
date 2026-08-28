@@ -15,9 +15,10 @@ async function run(orchestrator, runConfig) {
   orchestrator.lastDiagnosis = diagnosis;
   orchestrator.currentTask.diagnosis = diagnosis;
   orchestrator.savedConfig = { ...orchestrator.savedConfig, lastDiagnosis: diagnosis };
+  // persistTask() já grava `config: this.savedConfig` sempre (ver orchestrator.js), então o
+  // runs.update(...) explícito que existia aqui era uma escrita duplicada byte-a-byte —
+  // resquício de antes de persistTask incluir config incondicionalmente.
   orchestrator.persistTask({});
-  const { runs } = require('../../lib/db');
-  runs.update(orchestrator.currentTask.id, { config: orchestrator.savedConfig });
   orchestrator.broadcast('agent-finished', { agent: 'debugger', status: 'success', data: diagnosis });
   orchestrator.broadcast('diagnosis-updated', diagnosis);
 

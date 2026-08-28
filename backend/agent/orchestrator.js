@@ -102,6 +102,7 @@ class Orchestrator extends EventEmitter {
       this.savedPlan = plan;
       this.savedPrompt = row.prompt;
       this.healingAttempts = Number(row.config?.healingAttempts || 0);
+      this.userFixInvoked = Boolean(row.config?.userFixInvoked);
       this.lastDiagnosis = row.config?.lastDiagnosis || null;
       this.currentTask.humanReport = row.config?.humanReport || row.config?.lastHumanReport || null;
       const tests = this.currentTask.tests || [];
@@ -601,7 +602,12 @@ class Orchestrator extends EventEmitter {
     this.savedConfig = {
       ...(this.savedConfig || {}),
       userReport: text,
-      pendingNextStage: 'userFix'
+      pendingNextStage: 'userFix',
+      // Persistido pra sobreviver a um restart do servidor no meio da run — sem isso, o flag
+      // ficava só em memória; se o processo reiniciasse depois do usuário já ter chamado o
+      // Corretor, a run completada mais tarde seria contada como "terminou sem intervenção"
+      // nas estatísticas de confiabilidade (ADR-012), mascarando que o humano teve que intervir.
+      userFixInvoked: true
     };
     this.currentTask.pendingNextStage = 'userFix';
     this.currentTask.approvalLabel = STAGE_LABELS.userFix;

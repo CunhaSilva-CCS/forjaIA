@@ -1,4 +1,4 @@
-import { Activity, Bug, Code2, FileText, Layers, RefreshCw, Settings, ShieldAlert, Terminal as TerminalIcon } from 'lucide-react';
+import { Activity, Bug, Code2, FileText, Layers, RefreshCw, Settings, ShieldAlert, Terminal as TerminalIcon, Users } from 'lucide-react';
 import type { AppState } from '../hooks/useForjaApp';
 import { TerminalTab } from './tabs/TerminalTab';
 import { CodeTab } from './tabs/CodeTab';
@@ -21,7 +21,7 @@ const TABS = [
   ['adrs', FileText, 'ADRs'],
   ['history', RefreshCw, 'Histórico'],
   ['projects', Settings, 'Projetos'],
-  ['team', Settings, 'Equipe']
+  ['team', Users, 'Equipe']
 ] as const;
 
 export function WorkspaceTabs({ s }: { s: AppState }) {

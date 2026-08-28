@@ -150,11 +150,16 @@ export function useForjaApp() {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const didApplyDefaultProvider = useRef(false);
   const selectedFilePathRef = useRef<string | null>(null);
+  const currentRunIdRef = useRef<string | null>(null);
   const handleWsMessageRef = useRef<(event: string, data: unknown) => void>(() => undefined);
 
   useEffect(() => {
     selectedFilePathRef.current = selectedFilePath;
   }, [selectedFilePath]);
+
+  useEffect(() => {
+    currentRunIdRef.current = currentRunId;
+  }, [currentRunId]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -289,17 +294,32 @@ export function useForjaApp() {
             setAgentStates(deriveAgentStates(payload.task));
             setActiveAgent(null);
             if (payload.task.id) {
+              const taskId = payload.task.id;
               api.runs
-                .get(payload.task.id)
+                .get(taskId)
                 .then((run) => {
-                  setLogs(
-                    (run.events || []).map((e) => ({
-                      agent: e.agent || 'system',
-                      message: e.message,
-                      type: e.type,
-                      timestamp: e.created_at
-                    }))
-                  );
+                  // A run pode ter mudado enquanto este fetch estava em voo (usuário trocou de
+                  // task, ou outro sync-state chegou) — não pisa em cima dos logs de uma run
+                  // diferente da atual.
+                  if (currentRunIdRef.current !== taskId) return;
+                  const fetched = (run.events || []).map((e) => ({
+                    agent: e.agent || 'system',
+                    message: e.message,
+                    type: e.type,
+                    timestamp: e.created_at
+                  }));
+                  // Achado real: linhas de agent-log que chegam AO VIVO via WebSocket enquanto
+                  // este fetch está em voo (uma run ativa continua logando durante o
+                  // round-trip) eram apagadas por uma substituição cega do array inteiro — o
+                  // snapshot buscado reflete o momento da requisição, não o da resposta. Mescla
+                  // em vez de substituir: o snapshot é a base (fonte de verdade até aquele
+                  // ponto), e qualquer linha ao vivo ainda não presente nele é preservada.
+                  setLogs((prev) => {
+                    const key = (l: LogLine) => `${l.timestamp}|${l.agent}|${l.message}`;
+                    const seen = new Set(fetched.map(key));
+                    const extra = prev.filter((l) => !seen.has(key(l)));
+                    return [...fetched, ...extra];
+                  });
                 })
                 .catch(() => undefined);
             }

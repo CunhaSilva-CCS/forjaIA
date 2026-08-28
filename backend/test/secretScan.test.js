@@ -52,6 +52,18 @@ describe('scanForHardcodedSecrets (ADR-011)', () => {
     assert.equal(issues.filter((i) => i.id === 'SEC-TOKEN-ANTHROPIC').length, 1);
   });
 
+  it('achado real: detecta DOIS segredos DISTINTOS do mesmo tipo no mesmo arquivo (regex sem flag "g" só pegava o primeiro)', () => {
+    const files = [
+      {
+        path: 'a.js',
+        content:
+          'const t1 = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890";\nconst t2 = "sk-ant-api03-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";'
+      }
+    ];
+    const issues = scanForHardcodedSecrets(files);
+    assert.equal(issues.filter((i) => i.id === 'SEC-TOKEN-ANTHROPIC').length, 2);
+  });
+
   // Regressão real: achado ao validar o secPass (app real de terceiro) — três falsos positivos
   // concretos que a checagem heurística estava gerando.
   it('não sinaliza fixture de teste com senha literal (arquivo __tests__/*.test.js)', () => {

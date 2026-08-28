@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TokenGate } from './TokenGate';
 import { api } from '../services/api';
+import { getStoredToken } from '../config';
 
 vi.mock('../services/api', () => ({
   api: {
@@ -53,6 +54,20 @@ describe('TokenGate', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Não autorizado');
     expect(onReady).not.toHaveBeenCalled();
+  });
+
+  it('achado real: não deixa o token rejeitado salvo no localStorage (trava permanente após um typo)', async () => {
+    vi.mocked(api.preferences.get).mockRejectedValue(new Error('Não autorizado'));
+    const user = userEvent.setup();
+    render(<TokenGate onReady={vi.fn()} />);
+
+    await user.type(screen.getByLabelText('Token de acesso'), 'token-com-typo');
+    await user.click(screen.getByRole('button', { name: 'Entrar' }));
+
+    await screen.findByRole('alert');
+    // Antes desta correção, o token era salvo ANTES de validar — um typo travava o usuário fora
+    // do app pra sempre (App.tsx pula a tela de token com Boolean(getStoredToken()) === true).
+    expect(getStoredToken()).toBe('');
   });
 
   it('envia o formulário ao pressionar Enter no campo de token', async () => {

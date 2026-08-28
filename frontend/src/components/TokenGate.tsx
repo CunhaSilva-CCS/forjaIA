@@ -16,6 +16,11 @@ export function TokenGate({ onReady }: { onReady: (token: string) => void }) {
       await api.preferences.get();
       onReady(token.trim());
     } catch (err) {
+      // Achado real: o token era persistido acima incondicionalmente, ANTES de validar. Um
+      // token rejeitado ficava salvo mesmo assim — no próximo reload, App.tsx só checa
+      // Boolean(getStoredToken()) e pula direto pro Dashboard com um token que o backend nunca
+      // aceita, sem caminho de volta pra esta tela a não ser limpar o localStorage manualmente.
+      setStoredToken('');
       setError(err instanceof Error ? err.message : 'Token inválido');
     } finally {
       setLoading(false);

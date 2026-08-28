@@ -14,15 +14,17 @@
  * um LLM), então basta alimentar essa lista pra virar bloqueio real.
  */
 
+// Todas com flag 'g' — sem ela, `regex.exec()` em loop nunca avança e um SEGUNDO segredo
+// distinto do mesmo tipo no mesmo arquivo nunca era reportado (achado real, pente fino).
 const KNOWN_TOKEN_PATTERNS = [
-  { id: 'SEC-TOKEN-ANTHROPIC', title: 'Chave de API da Anthropic exposta', regex: /sk-ant-[a-zA-Z0-9_-]{20,}/ },
-  { id: 'SEC-TOKEN-OPENAI', title: 'Chave de API estilo OpenAI exposta', regex: /\bsk-[a-zA-Z0-9]{20,}\b/ },
-  { id: 'SEC-TOKEN-GOOGLE', title: 'Chave de API do Google exposta', regex: /\bAIza[0-9A-Za-z\-_]{35}\b/ },
-  { id: 'SEC-TOKEN-AWS', title: 'Access Key ID da AWS exposta', regex: /\bAKIA[0-9A-Z]{16}\b/ },
-  { id: 'SEC-TOKEN-GITHUB', title: 'Token de acesso do GitHub exposto', regex: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/ },
-  { id: 'SEC-TOKEN-SLACK', title: 'Token do Slack exposto', regex: /\bxox[baprs]-[A-Za-z0-9-]{10,48}\b/ },
-  { id: 'SEC-TOKEN-STRIPE', title: 'Chave secreta do Stripe exposta', regex: /\bsk_live_[0-9a-zA-Z]{16,}\b/ },
-  { id: 'SEC-PRIVATE-KEY', title: 'Bloco de chave privada exposto', regex: /-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----/ }
+  { id: 'SEC-TOKEN-ANTHROPIC', title: 'Chave de API da Anthropic exposta', regex: /sk-ant-[a-zA-Z0-9_-]{20,}/g },
+  { id: 'SEC-TOKEN-OPENAI', title: 'Chave de API estilo OpenAI exposta', regex: /\bsk-[a-zA-Z0-9]{20,}\b/g },
+  { id: 'SEC-TOKEN-GOOGLE', title: 'Chave de API do Google exposta', regex: /\bAIza[0-9A-Za-z\-_]{35}\b/g },
+  { id: 'SEC-TOKEN-AWS', title: 'Access Key ID da AWS exposta', regex: /\bAKIA[0-9A-Z]{16}\b/g },
+  { id: 'SEC-TOKEN-GITHUB', title: 'Token de acesso do GitHub exposto', regex: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g },
+  { id: 'SEC-TOKEN-SLACK', title: 'Token do Slack exposto', regex: /\bxox[baprs]-[A-Za-z0-9-]{10,48}\b/g },
+  { id: 'SEC-TOKEN-STRIPE', title: 'Chave secreta do Stripe exposta', regex: /\bsk_live_[0-9a-zA-Z]{16,}\b/g },
+  { id: 'SEC-PRIVATE-KEY', title: 'Bloco de chave privada exposto', regex: /-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----/g }
 ];
 
 const SUSPICIOUS_ASSIGNMENTS = [
@@ -89,16 +91,31 @@ function scanForHardcodedSecrets(files) {
     const filePath = file.path || 'unknown';
 
     for (const pattern of KNOWN_TOKEN_PATTERNS) {
-      const match = code.match(pattern.regex);
-      if (!match) continue;
-      push({
-        id: pattern.id,
-        title: pattern.title,
-        severity: 'CRITICAL',
-        file: filePath,
-        description: `Encontrado um valor no formato de ${pattern.title.toLowerCase()} diretamente no código-fonte.`,
-        remediation: 'Remova o valor do código, revogue a credencial exposta e carregue-a via process.env.'
-      });
+      pattern.regex.lastIndex = 0;
+      let m;
+      while ((m = pattern.regex.exec(code))) {
+        push({
+          id: pattern.id,
+          title: pattern.title,
+          severity: 'CRITICAL',
+          file: filePath,
+          // O valor casado (não a posição) entra na descrição — dedup em push() é por
+          // id:file:description, então o MESMO segredo repetido no arquivo ainda vira 1 issue
+          // (comportamento esperado), mas um segredo DIFERENTE do mesmo tipo no mesmo arquivo
+          // agora vira um issue separado (achado real: antes sem a flag 'g', a segunda
+          // ocorrência nunca era nem examinada).
+          // Prefixo curto (ex.: "sk-ant-api03-") é igual pra qualquer chave do mesmo provedor —
+          // truncar cedo demais faria dois segredos DIFERENTES colidirem na dedup por engano.
+          // O valor inteiro entra na key; só a exibição (se algum dia for renderizada) precisaria
+          // truncar por conta própria.
+          description: `Encontrado um valor no formato de ${pattern.title.toLowerCase()} diretamente no código-fonte ("${m[0]}").`,
+          remediation: 'Remova o valor do código, revogue a credencial exposta e carregue-a via process.env.'
+        });
+        // Regex sem grupo de captura de comprimento variável (ex.: SEC-PRIVATE-KEY) pode casar
+        // string vazia em teoria — nunca deste conjunto específico, mas avança lastIndex por
+        // segurança pra nunca entrar em loop infinito.
+        if (m.index === pattern.regex.lastIndex) pattern.regex.lastIndex += 1;
+      }
     }
 
     for (const pattern of SUSPICIOUS_ASSIGNMENTS) {

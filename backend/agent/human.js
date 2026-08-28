@@ -660,17 +660,15 @@ Retorne APENAS JSON:
       ['HIGH', 'CRITICAL'].includes(String(i.severity || '').toUpperCase())
     );
     const flowOk = failedSteps.length === 0;
-    const passed =
-      surface.reachable &&
-      flowOk &&
-      !critical &&
-      (senior?.verdict === 'aprovado' ||
-        senior?.verdict === 'ressalvas' ||
-        (!senior?.verdict && issues.length === 0));
-
-    // ressalvas ainda passa se o fluxo crítico ok e sem HIGH/CRITICAL
-    const finalPassed =
-      senior?.verdict === 'reprovado' ? false : passed || (flowOk && !critical && surface.reachable);
+    // Achado real: a variável `passed` original checava o verdict do LLM ('aprovado'/'ressalvas'/
+    // sem-verdict-e-sem-issues) mas era sempre um subconjunto de `flowOk && !critical &&
+    // surface.reachable` — `passed || X` sempre reduzia pra `X`, então aquela checagem nunca
+    // influenciava o resultado (código morto). Na prática, o único jeito do LLM vetar um teste
+    // humano de resto limpo era bater o literal exato 'reprovado' abaixo — qualquer variação de
+    // formatação ("Reprovado", "reprovado.") passava batido. Normaliza o verdict em vez de
+    // comparar string exata.
+    const seniorRejected = String(senior?.verdict || '').trim().toLowerCase().startsWith('reprovado');
+    const finalPassed = !seniorRejected && flowOk && !critical && surface.reachable;
 
     if (senior?.summary) {
       orchestrator.log(

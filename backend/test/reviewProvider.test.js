@@ -38,6 +38,21 @@ describe('resolveReviewProvider — diversidade de modelo na revisão sênior (A
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
     fresh('../lib/config');
   });
+
+  it('achado real: cai pro MESMO provedor primário (não sempre ollama) quando ele não é ollama e não há alternativa', () => {
+    // `primary === 'ollama' ? primary : 'ollama'` sempre devolvia 'ollama', mesmo quando o
+    // primário era claude/gemini/openai — o teste anterior só usava primário 'ollama', então os
+    // dois ramos do ternário davam o mesmo resultado e nunca pegava o bug.
+    process.env.GEMINI_API_KEY = '';
+    process.env.ANTHROPIC_API_KEY = '';
+    process.env.OPENAI_API_KEY = '';
+    fresh('../lib/config');
+    const { resolveReviewProvider } = fresh('../lib/llm');
+    assert.equal(resolveReviewProvider({ llmProvider: 'claude' }), 'claude');
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    fresh('../lib/config');
+  });
 });
 
 describe('thinkAsSenior — usa o provedor de revisão, não o primário da run (ADR-011)', () => {

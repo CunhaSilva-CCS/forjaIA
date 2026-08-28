@@ -41,6 +41,27 @@ describe('Orchestrator.queueUserReport — não ressuscita run já terminada (ac
     assert.throws(() => orch.queueUserReport('achei um bug'), /já terminou/);
   });
 
+  it('achado real: userFixInvoked sobrevive a um restart do servidor (restorePendingApproval)', () => {
+    const db = fresh('../lib/db');
+    const run = db.runs.create({ prompt: 'run que vai reiniciar' });
+    db.runs.update(run.id, { files: [{ path: 'a.js', content: 'x' }] });
+
+    const Orchestrator = fresh('../agent/orchestrator');
+    const orch = new Orchestrator(null);
+    orch.currentTask = { id: run.id, status: 'awaiting_approval', files: [{ path: 'a.js' }] };
+    orch.isExecuting = false;
+    orch.queueUserReport('achei um bug'); // persiste de verdade — não mocka persistTask aqui
+
+    // Simula um restart: uma instância NOVA do Orchestrator lê o estado do banco do zero.
+    const OrchestratorFresh = fresh('../agent/orchestrator');
+    const restarted = new OrchestratorFresh(null);
+    assert.equal(
+      restarted.userFixInvoked,
+      true,
+      'userFixInvoked deveria ter sido restaurado do config persistido, não voltar a false'
+    );
+  });
+
   it('continua aceitando o relato numa run em andamento (comportamento anterior preservado)', () => {
     const db = fresh('../lib/db');
     const run = db.runs.create({ prompt: 'run em andamento' });

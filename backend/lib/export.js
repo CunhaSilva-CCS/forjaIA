@@ -1,4 +1,5 @@
 const archiver = require('archiver');
+const path = require('path');
 const { runs } = require('./db');
 
 function buildAdrMarkdown(adrs = []) {
@@ -70,7 +71,18 @@ async function streamRunExport(runId, res) {
 
     for (const file of run.files || []) {
       if (!file?.path) continue;
-      archive.append(file.content || '', { name: `code/${file.path}` });
+      // file.path vem de run.files no banco — não passa pela mesma checagem de traversal que
+      // devops.js aplica ao ESCREVER em disco (writeSafely). Como nome de entrada de zip, um
+      // path tipo "../../../etc/cron.d/x" seria embutido sem sanitização; quem extrai esse zip
+      // com uma ferramenta ingênua/desatualizada (zip-slip clássico) escreveria fora do diretório
+      // de destino. O ForjaIA em si não é afetado (só monta o zip, não extrai), mas é
+      // defesa-em-profundidade pra quem baixa o export.
+      const normalized = path.posix.normalize(String(file.path));
+      if (normalized.startsWith('..') || normalized.startsWith('/')) {
+        console.error(`[export] ignorando arquivo com path suspeito no zip: ${file.path}`);
+        continue;
+      }
+      archive.append(file.content || '', { name: `code/${normalized}` });
     }
 
     archive.finalize();
