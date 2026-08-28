@@ -227,6 +227,10 @@ app.get('/api/runs', (req, res) => {
   res.json(runs.list(limit));
 });
 
+app.get('/api/runs/stats/reliability', (req, res) => {
+  res.json(runs.reliabilityStats());
+});
+
 app.get('/api/runs/:id', (req, res) => {
   const run = runs.get(req.params.id);
   if (!run) return res.status(404).json({ error: 'Execução não encontrada' });

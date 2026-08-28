@@ -93,6 +93,7 @@ function migrate(database) {
   ensureColumn('runs', 'pr_url', 'pr_url TEXT');
   ensureColumn('runs', 'git_branch', 'git_branch TEXT');
   ensureColumn('runs', 'queue_position', 'queue_position INTEGER');
+  ensureColumn('runs', 'reliability_json', 'reliability_json TEXT');
 
   const { ensureTeamTable } = require('./team');
   ensureTeamTable(database);
@@ -305,6 +306,8 @@ const runs = {
         patch.performanceMetrics !== undefined
           ? JSON.stringify(patch.performanceMetrics)
           : current.metrics_json,
+      reliability_json:
+        patch.reliability !== undefined ? JSON.stringify(patch.reliability) : current.reliability_json,
       token_stats_json:
         patch.tokenStats !== undefined ? JSON.stringify(patch.tokenStats) : current.token_stats_json,
       deploy_url: patch.deployUrl !== undefined ? patch.deployUrl : current.deploy_url,
@@ -323,7 +326,7 @@ const runs = {
     getDb()
       .prepare(
         `UPDATE runs SET status=?, plan_json=?, files_json=?, adrs_json=?, tests_json=?, security_json=?,
-         metrics_json=?, token_stats_json=?, deploy_url=?, error=?, finished_at=?, config_json=?,
+         metrics_json=?, reliability_json=?, token_stats_json=?, deploy_url=?, error=?, finished_at=?, config_json=?,
          owner_id=?, owner_name=?, owner_role=?, environment=?, pr_url=?, git_branch=?, queue_position=?,
          updated_at=?
          WHERE id=?`
@@ -336,6 +339,7 @@ const runs = {
         next.tests_json,
         next.security_json,
         next.metrics_json,
+        next.reliability_json,
         next.token_stats_json,
         next.deploy_url,
         next.error,
@@ -426,6 +430,46 @@ const runs = {
     const queued = this.listQueued();
     const awaiting = recent.filter((r) => r.status === 'awaiting_approval');
     return { queued, awaiting, recent };
+  },
+  /**
+   * Confiabilidade medida across runs concluídas (ver ADR-012) — só entra na conta o que já foi
+   * instrumentado (reliability_json não nulo); nunca uma estimativa, só o que foi de fato medido.
+   */
+  reliabilityStats() {
+    const rows = getDb()
+      .prepare(`SELECT reliability_json FROM runs WHERE reliability_json IS NOT NULL`)
+      .all()
+      .map((r) => safeJson(r.reliability_json, null))
+      .filter(Boolean);
+
+    const total = rows.length;
+    if (total === 0) {
+      return {
+        measuredRuns: 0,
+        finishedWithoutInterventionRate: null,
+        avgHealingAttempts: null,
+        userFixInvokedRate: null,
+        avgTestPassRate: null,
+        humanPassedRate: null
+      };
+    }
+
+    const sum = (fn) => rows.reduce((acc, r) => acc + fn(r), 0);
+    const testRuns = rows.filter((r) => r.testsTotal > 0);
+    const humanRuns = rows.filter((r) => r.humanPassed !== null && r.humanPassed !== undefined);
+
+    return {
+      measuredRuns: total,
+      finishedWithoutInterventionRate: sum((r) => (r.finishedWithoutIntervention ? 1 : 0)) / total,
+      avgHealingAttempts: sum((r) => r.healingAttempts || 0) / total,
+      userFixInvokedRate: sum((r) => (r.userFixInvoked ? 1 : 0)) / total,
+      avgTestPassRate: testRuns.length
+        ? testRuns.reduce((acc, r) => acc + r.testsPassed / r.testsTotal, 0) / testRuns.length
+        : null,
+      humanPassedRate: humanRuns.length
+        ? humanRuns.reduce((acc, r) => acc + (r.humanPassed ? 1 : 0), 0) / humanRuns.length
+        : null
+    };
   }
 };
 
@@ -439,6 +483,7 @@ function hydrateRun(row) {
     tests: safeJson(row.tests_json, []),
     securityIssues: safeJson(row.security_json, []),
     performanceMetrics: safeJson(row.metrics_json, null),
+    reliability: safeJson(row.reliability_json, null),
     tokenStats: safeJson(row.token_stats_json, {
       prompt: 0,
       completion: 0,

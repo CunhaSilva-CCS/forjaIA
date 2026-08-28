@@ -58,6 +58,7 @@ class Orchestrator extends EventEmitter {
     this.abortController = null;
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
+    this.userFixInvoked = false;
     this.maxHealingAttempts = 3;
     this.lastTestReport = null;
     this.lastSecurityReport = null;
@@ -217,6 +218,7 @@ class Orchestrator extends EventEmitter {
       tests: this.currentTask.tests,
       securityIssues: this.currentTask.securityIssues,
       performanceMetrics: this.currentTask.performanceMetrics,
+      reliability: this.currentTask.reliability,
       tokenStats: this.currentTask.tokenStats,
       deployUrl: this.currentTask.deployUrl,
       error: this.currentTask.error,
@@ -282,6 +284,7 @@ class Orchestrator extends EventEmitter {
     this.isExecuting = true;
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
+    this.userFixInvoked = false;
     this.createAbortController();
 
     const owner = runConfig.owner || options.owner || null;
@@ -583,6 +586,7 @@ class Orchestrator extends EventEmitter {
       throw Object.assign(new Error('Não há arquivos no run para corrigir'), { status: 400 });
     }
 
+    this.userFixInvoked = true;
     this.savedConfig = {
       ...(this.savedConfig || {}),
       userReport: text,
@@ -640,6 +644,7 @@ class Orchestrator extends EventEmitter {
     this.isExecuting = true;
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
+    this.userFixInvoked = false;
     this.createAbortController();
 
     try {
@@ -778,6 +783,16 @@ class Orchestrator extends EventEmitter {
         this
       );
       this.currentTask.reportPdfPath = pdfPath;
+
+      const { computeReliability } = require('../lib/reliability');
+      const reliability = computeReliability({
+        healingAttempts: this.healingAttempts,
+        userFixInvoked: this.userFixInvoked,
+        summary: model.summary
+      });
+      this.currentTask.reliability = reliability;
+      this.persistTask({ reliability });
+
       this.log(
         'reporter',
         `Relatório PDF pronto (${model.summary.testsPassed}/${model.summary.testsTotal} QA): ${pdfPath}`,
