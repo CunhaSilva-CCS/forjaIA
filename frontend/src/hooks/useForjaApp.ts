@@ -55,9 +55,7 @@ const STAGE_BUTTON: Record<string, string> = {
 
 export function useForjaApp() {
   const [toast, setToast] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState(
-    'Criar uma API de Autenticação com JWT e banco de dados relacional de usuários'
-  );
+  const [prompt, setPrompt] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [agentStates, setAgentStates] = useState(idleAgents());
@@ -129,7 +127,6 @@ export function useForjaApp() {
   const [teamInfo, setTeamInfo] = useState<TeamInfo | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const didAutoSelectProject = useRef(false);
   const didApplyDefaultProvider = useRef(false);
   const selectedFilePathRef = useRef<string | null>(null);
   const handleWsMessageRef = useRef<(event: string, data: unknown) => void>(() => undefined);
@@ -207,34 +204,6 @@ export function useForjaApp() {
       if (me) setTeamMe(me);
       if (team) setTeamInfo(team);
       if (board) setTeamBoard(board);
-      if (!didAutoSelectProject.current && projectList.length) {
-        didAutoSelectProject.current = true;
-        const preferred =
-          projectList.find((p) => p.path === 'rag-profissional') ||
-          projectList.find((p) => p.source === 'workspace') ||
-          projectList[0];
-        if (preferred) {
-          void (async () => {
-            try {
-              if (preferred.source === 'workspace' || String(preferred.id).startsWith('ws:')) {
-                const ensured = await api.projects.ensure(preferred.name, preferred.path);
-                setSelectedProjectId(ensured.id);
-                setTargetPath(ensured.path);
-                setProjects((prev) => {
-                  const without = prev.filter((p) => p.path !== ensured.path);
-                  return [{ ...ensured, source: 'registered', existsOnDisk: true }, ...without];
-                });
-              } else {
-                setSelectedProjectId(preferred.id);
-                setTargetPath(preferred.path);
-              }
-            } catch {
-              setSelectedProjectId(preferred.id);
-              setTargetPath(preferred.path);
-            }
-          })();
-        }
-      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Falha ao carregar metadados');
     }
@@ -599,8 +568,17 @@ export function useForjaApp() {
 
   /** Limpa a área de trabalho pra começar outro projeto do zero — não mexe no workspace/histórico
    * no servidor, só reseta o que a tela mostra (prompt, destino, projeto selecionado, run atual). */
-  const resetWorkspace = () => {
+  const resetWorkspace = async () => {
     if (isExecuting) return;
+    // "Novo" também precisa dispensar a run pendente no servidor, não só limpar a tela — senão
+    // uma run "aguardando aprovação" continua viva no backend e, num reinício do serviço,
+    // restorePendingApproval() a traz de volta, fazendo o projeto "antigo" reaparecer mesmo
+    // depois de já ter clicado em Novo.
+    try {
+      await api.cancel();
+    } catch {
+      // Sem run ativa pra cancelar é o caso normal (ex.: tela já estava limpa) — segue o reset.
+    }
     setPrompt('');
     setTargetPath('deployed');
     setSelectedProjectId(null);

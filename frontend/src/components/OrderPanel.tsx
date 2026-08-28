@@ -12,7 +12,7 @@ export function OrderPanel({ s }: { s: AppState }) {
         <button
           type="button"
           className="btn-tiny"
-          onClick={s.resetWorkspace}
+          onClick={() => void s.resetWorkspace()}
           disabled={s.isExecuting}
           title="Limpar a tela e começar outro projeto (ou escolher um projeto existente abaixo)"
         >
