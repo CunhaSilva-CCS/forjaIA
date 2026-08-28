@@ -67,15 +67,45 @@ module.exports = {
       for (const file of files) writeSafely(file);
     }
 
-    const { deployToSimulator } = require('../lib/mobileDeploy');
-    const result = await deployToSimulator({ projectDir: deployDir, orchestrator });
+    // Simulador de iPhone é sempre tentado (comportamento original, ADR-014) — Mac (Catalyst) e
+    // Windows (GitHub Actions) são adicionais opcionais (ADR-018): tentados só quando o projeto
+    // já tem o suporte configurado, e uma falha num deles não derruba os outros.
+    const { deployToSimulator, deployToMac, supportsMacCatalyst } = require('../lib/mobileDeploy');
+    const { supportsWindows, triggerWindowsBuild } = require('../lib/windowsDeploy');
+
+    const targets = [];
+    const simResult = await deployToSimulator({ projectDir: deployDir, orchestrator });
+    targets.push({ platform: 'ios-simulator', ok: true, ...simResult });
+
+    if (await supportsMacCatalyst(deployDir)) {
+      try {
+        const macResult = await deployToMac({ projectDir: deployDir, orchestrator });
+        targets.push({ platform: 'macos', ok: true, ...macResult });
+      } catch (err) {
+        orchestrator.log('devops', `Deploy macOS falhou: ${err.message}`, 'warning');
+        targets.push({ platform: 'macos', ok: false, error: err.message });
+      }
+    } else {
+      orchestrator.log('devops', 'macOS: Mac Catalyst não habilitado neste projeto — pulando.', 'info');
+    }
+
+    if (supportsWindows(deployDir)) {
+      try {
+        const winResult = await triggerWindowsBuild({ projectDir: deployDir, orchestrator });
+        targets.push({ platform: 'windows', ok: true, ...winResult });
+      } catch (err) {
+        orchestrator.log('devops', `Build Windows falhou: ${err.message}`, 'warning');
+        targets.push({ platform: 'windows', ok: false, error: err.message });
+      }
+    } else {
+      orchestrator.log('devops', 'Windows: sem scaffolding/workflow configurado neste projeto — pulando.', 'info');
+    }
 
     return {
-      url: result.url,
+      url: null,
       path: relativeTarget,
-      runtime: result.type,
-      simulatorName: result.simulatorName,
-      simulatorUdid: result.simulatorUdid
+      runtime: 'multi-platform',
+      targets
     };
   },
 

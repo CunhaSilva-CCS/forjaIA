@@ -163,8 +163,122 @@ async function deployToSimulator({ projectDir, orchestrator }) {
   };
 }
 
+/** Acha o .xcworkspace do projeto (convenção Expo/RN: nome do workspace == nome do scheme). */
+function findXcodeWorkspace(projectDir) {
+  const iosDir = path.join(projectDir, 'ios');
+  if (!fs.existsSync(iosDir)) return null;
+  const entry = fs.readdirSync(iosDir).find((f) => f.endsWith('.xcworkspace'));
+  if (!entry) return null;
+  return { dir: iosDir, workspace: entry, scheme: entry.replace(/\.xcworkspace$/, '') };
+}
+
+/**
+ * macOS via Mac Catalyst DE VERDADE (ver ADR-018): reaproveita o MESMO projeto Xcode do iOS — "My
+ * Mac" é só mais um destino de build (`-destination 'platform=macOS,name=My Mac'`), não precisa de
+ * uma pasta nativa `macos/` separada como o react-native-macos exigiria.
+ *
+ * A checagem exige o variant `Mac Catalyst` explicitamente, não só "tem destino macOS" —
+ * descoberto rodando contra um projeto real (secPass): quando o alvo NÃO tem
+ * `SUPPORTS_MACCATALYST` habilitado, `xcodebuild -showdestinations` ainda lista um destino
+ * `platform:macOS, name:My Mac`, mas com `variant:Designed for [iPad,iPhone]` — Apple Silicon
+ * rodando o binário iOS original sem recompilar, não Catalyst. O build até compila (produz um
+ * Mach-O `platform:iOS` de verdade, confirmado via `otool -l`), mas `open` no `.app` falha
+ * ("incorrect executable format") e nem `xcrun devicectl` reconhece "My Mac" como device
+ * instalável — não existe caminho de linha de comando conhecido pra lançar esse modo fora do
+ * próprio Xcode. Por isso só o variant Catalyst real é aceito aqui; "Designed for iPad" é tratado
+ * como não suportado (pula o alvo, mensagem clara, em vez de compilar um binário que não abre).
+ */
+async function supportsMacCatalyst(projectDir) {
+  const ws = findXcodeWorkspace(projectDir);
+  if (!ws) return false;
+  try {
+    const { stdout } = await execAsync(
+      `xcodebuild -workspace "${ws.workspace}" -scheme "${ws.scheme}" -showdestinations`,
+      { cwd: ws.dir }
+    );
+    return /platform:macOS/i.test(stdout) && /variant:\s*Mac Catalyst/i.test(stdout);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Acha o .app compilado dentro do DerivedData pro destino "My Mac". A pasta de saída varia com o
+ * MODO real usado pelo projeto — `Debug-maccatalyst/` pra Catalyst de verdade (SUPPORTS_MACCATALYST),
+ * mas `Debug-iphoneos/` quando o projeto não tem Catalyst habilitado e o destino "My Mac" resolve
+ * pra "Designed for iPad" (Apple Silicon rodando o binário iOS nativo sem recompilar) — descoberto
+ * rodando contra um projeto real (secPass): o `xcodebuild` desse caso compila com
+ * `-target-sdk-version` de iOS, não existe variant Catalyst separado. Por isso a busca é genérica:
+ * qualquer pasta de config que não seja de Simulador.
+ */
+function findBuiltMacApp(derivedDataPath) {
+  const productsDir = path.join(derivedDataPath, 'Build', 'Products');
+  if (!fs.existsSync(productsDir)) return null;
+  const configDirs = fs.readdirSync(productsDir).filter((d) => !/simulator/i.test(d));
+  for (const dir of configDirs) {
+    const full = path.join(productsDir, dir);
+    const app = fs.readdirSync(full).find((f) => f.endsWith('.app'));
+    if (app) return path.join(full, app);
+  }
+  return null;
+}
+
+/**
+ * macOS via Mac Catalyst (ver ADR-018): `expo run:ios --device` NÃO suporta Catalyst — o CLI só
+ * resolve simuladores/dispositivos iOS reais contra `-d/--device` (confirmado via `--help` e um
+ * erro real: "No device UDID or name matching 'my mac'"); "My Mac" só existe no vocabulário do
+ * `xcodebuild -showdestinations`, não no do Expo. Por isso este passo pula o Expo CLI inteiramente
+ * e chama `xcodebuild` direto — build com assinatura ad-hoc (`CODE_SIGN_IDENTITY=-`, sem
+ * signing obrigatório, igual ao que o Xcode faz pra "Sign to Run Locally") e depois `open` no
+ * `.app` gerado no DerivedData.
+ */
+async function deployToMac({ projectDir, orchestrator }) {
+  const ws = findXcodeWorkspace(projectDir);
+  const supported = await supportsMacCatalyst(projectDir);
+  if (!ws || !supported) {
+    throw new Error(
+      'Projeto sem Mac Catalyst habilitado no Xcode (SUPPORTS_MACCATALYST) — não é possível compilar pra macOS sem isso.'
+    );
+  }
+  orchestrator.log('devops', 'Compilando para macOS via Mac Catalyst (xcodebuild) — pode levar alguns minutos...', 'info');
+
+  const derivedDataPath = path.join(os.tmpdir(), `forja-catalyst-dd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const cmd = [
+    'xcodebuild',
+    `-workspace "${ws.workspace}"`,
+    `-scheme "${ws.scheme}"`,
+    `-destination "platform=macOS,name=My Mac"`,
+    '-configuration Debug',
+    `-derivedDataPath "${derivedDataPath}"`,
+    'CODE_SIGN_IDENTITY=-',
+    'CODE_SIGNING_REQUIRED=NO',
+    'CODE_SIGNING_ALLOWED=NO',
+    'build'
+  ].join(' ');
+
+  try {
+    await execAsync(cmd, { cwd: ws.dir });
+  } catch (err) {
+    const wrapped = new Error(`xcodebuild (Mac Catalyst) falhou: ${err.message}`);
+    wrapped.log = String(`${err.stdout || ''}\n${err.stderr || ''}`).slice(-4000);
+    throw wrapped;
+  }
+
+  const appPath = findBuiltMacApp(derivedDataPath);
+  if (!appPath) {
+    throw new Error(`Build do Catalyst terminou mas não achei o .app gerado em ${derivedDataPath}`);
+  }
+  await execAsync(`open "${appPath}"`);
+  orchestrator.log('devops', `App instalado e aberto no Mac (Catalyst): ${appPath}`, 'success');
+  return { type: 'mac-catalyst', url: null, appPath };
+}
+
 module.exports = {
   deployToSimulator,
+  deployToMac,
   pickSimulator,
+  supportsMacCatalyst,
+  findXcodeWorkspace,
+  findBuiltMacApp,
   __test__: { runExpoRunIos }
 };

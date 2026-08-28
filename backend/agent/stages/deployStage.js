@@ -1,3 +1,19 @@
+/** Descreve onde o deploy foi feito, cobrindo tanto o web/simulador único de antes quanto os
+ * múltiplos alvos mobile (ADR-018: Simulador + Mac Catalyst + Windows via GitHub Actions). */
+function describeDeployTargets(deployResult) {
+  if (deployResult.url) return deployResult.url;
+  if (Array.isArray(deployResult.targets) && deployResult.targets.length) {
+    const parts = deployResult.targets.map((t) => {
+      if (t.platform === 'ios-simulator') return t.ok ? `Simulador (${t.simulatorName || 'iPhone'})` : null;
+      if (t.platform === 'macos') return t.ok ? 'macOS (Catalyst)' : 'macOS (falhou)';
+      if (t.platform === 'windows') return t.ok ? `Windows (${t.runUrl || 'GitHub Actions'})` : 'Windows (falhou)';
+      return null;
+    });
+    return parts.filter(Boolean).join(' · ') || 'destino desconhecido';
+  }
+  return `Simulador (${deployResult.simulatorName || 'iPhone'})`;
+}
+
 async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
   const devops = require('../devops');
@@ -7,7 +23,7 @@ async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
   orchestrator.currentTask.deployUrl = deployResult.url;
   orchestrator.persistTask({ deployUrl: deployResult.url });
-  const where = deployResult.url || `Simulador (${deployResult.simulatorName || 'iPhone'})`;
+  const where = describeDeployTargets(deployResult);
   orchestrator.log('orchestrator', `Projeto implantado em ${where}`, 'success');
   orchestrator.broadcast('agent-finished', { agent: 'devops', status: 'success', data: deployResult });
   await orchestrator.pauseForApproval(
