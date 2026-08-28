@@ -6,7 +6,25 @@ const path = require('path');
 const config = require('../lib/config');
 const { buildReportPdf } = require('../lib/reportPdf');
 
-function ensureReportsDir() {
+/**
+ * _reports/ vive DENTRO da pasta do projeto ao qual a run pertence, nunca solto na raiz do
+ * workspace — senão relatórios de projetos diferentes (inclusive de terceiros, se o workspace for
+ * compartilhado) se misturam no mesmo lugar. Sem targetPath/sourcePath resolvível (run muito cedo
+ * no pipeline, ou caminho fora do workspace), cai pro antigo comportamento de raiz compartilhada
+ * como último recurso — nunca falha a geração do relatório por causa disso.
+ */
+function ensureReportsDir(run) {
+  const projectPath = run?.config?.targetPath || run?.config?.sourcePath || null;
+  if (projectPath) {
+    try {
+      const { resolveWithinWorkspace } = require('../lib/paths');
+      const dir = path.join(resolveWithinWorkspace(projectPath), '_reports');
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    } catch {
+      // caminho inválido/fora do workspace → cai pro fallback abaixo
+    }
+  }
   const dir = path.join(config.workspaceRoot, '_reports');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -337,7 +355,7 @@ function buildReportModel(run, events = [], narrativeOverride = null) {
 async function generatePdfForRun(run, events = [], orchestrator = null) {
   const narrative = await buildNarrativeSenior(run, events, orchestrator);
   const model = buildReportModel(run, events, narrative);
-  const dir = ensureReportsDir();
+  const dir = ensureReportsDir(run);
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   const outPath = path.join(dir, `relatorio-${model.projectName}-${stamp}.pdf`);
   model.pdfPath = outPath;
