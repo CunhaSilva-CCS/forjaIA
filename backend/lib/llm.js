@@ -44,6 +44,26 @@ function resolveProvider(runConfig = {}) {
   return config.defaultLlmProvider || 'ollama';
 }
 
+/**
+ * Provedor pra revisão sênior (ver ADR-011): deliberadamente DIFERENTE do que gerou o código
+ * nesta run, quando houver alternativa configurada. O objetivo não é custo — é reduzir erro
+ * correlacionado: se o mesmo modelo que escreveu o código também é o único revisor, ele carrega
+ * os mesmos pontos cegos e tende a aprovar os próprios erros sistemáticos. Cursor nunca entra
+ * aqui (por design, só roda quando escolhido explicitamente — ver ADR-007). Cai pro mesmo
+ * provedor da run se não houver alternativa cloud configurada (Ollama sozinho, por exemplo) —
+ * degrada de volta pro comportamento anterior, nunca quebra.
+ */
+function resolveReviewProvider(runConfig = {}) {
+  const primary = resolveProvider(runConfig);
+  const available = [];
+  if (config.geminiApiKey) available.push('gemini');
+  if (config.anthropicApiKey) available.push('claude');
+  if (config.openaiApiKey) available.push('openai');
+  available.push('ollama');
+  const alternate = available.find((p) => p !== primary);
+  return alternate || primary;
+}
+
 /** Modelos Gemini descontinuados → sucessor recomendado pela API. */
 function resolveGeminiModel(requested) {
   const raw = String(requested || config.geminiModel || 'gemini-3.6-flash').trim();
@@ -750,6 +770,7 @@ module.exports = {
   checkCursorAgent,
   extractJson,
   resolveProvider,
+  resolveReviewProvider,
   resolveGeminiModel,
   resolveTierModel,
   providerStatus,

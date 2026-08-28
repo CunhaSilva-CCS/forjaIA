@@ -6,6 +6,11 @@ const os = require('os');
 process.env.FORJA_API_TOKEN = process.env.FORJA_API_TOKEN || 'test-token-forja';
 process.env.FORJA_DB_PATH = process.env.FORJA_DB_PATH || path.join(os.tmpdir(), `forja-tier-${Date.now()}.db`);
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'sk-ant-test-key';
+// Sem alternativa cloud configurada: resolveReviewProvider (ADR-011) cai pro mesmo provedor
+// (claude), então este arquivo testa só a resolução de tier, isolado da diversidade de provedor
+// (coberta em reviewProvider.test.js).
+process.env.GEMINI_API_KEY = '';
+process.env.OPENAI_API_KEY = '';
 process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
 process.env.ANTHROPIC_MODEL_ECONOMY = 'claude-haiku-4-5-20251001';
 process.env.OPENAI_MODEL = 'gpt-4.1';
@@ -63,8 +68,8 @@ describe('thinkAsSenior — usa tier economy (ADR-010)', () => {
     global.fetch = originalFetch;
   });
 
-  it('chama generateJson com tier "economy", resultando no modelo Claude econômico', async () => {
-    const { thinkAsSenior } = fresh('../lib/seniorEngineer');
+  it('generateJson com tier "economy" resulta no modelo Claude econômico (isolado da diversidade de provedor, ver reviewProvider.test.js)', async () => {
+    const { generateJson } = fresh('../lib/llm');
 
     let capturedBody = null;
     global.fetch = async (_url, opts) => {
@@ -78,13 +83,11 @@ describe('thinkAsSenior — usa tier economy (ADR-010)', () => {
       };
     };
 
-    const orchestrator = { log: () => {}, recordTokens: () => {} };
-    await thinkAsSenior({
-      role: 'security',
-      taskContract: 'revise a segurança',
-      userPayload: 'contexto',
+    await generateJson({
+      system: 'x',
+      user: 'y',
       runConfig: { llmProvider: 'claude' },
-      orchestrator
+      tier: 'economy'
     });
 
     assert.equal(capturedBody.model, 'claude-haiku-4-5-20251001');

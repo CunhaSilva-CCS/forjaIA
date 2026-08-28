@@ -152,12 +152,15 @@ function announceThinking(orchestrator, role) {
 async function thinkAsSenior({ role, taskContract, userPayload, runConfig, orchestrator }) {
   announceThinking(orchestrator, role);
   try {
-    const { generateJson } = require('./llm');
+    const { generateJson, resolveReviewProvider } = require('./llm');
     const system = composeSystemPrompt(role, taskContract, runConfig);
+    // Provedor diferente do que gerou o código nesta run, quando houver alternativa (ADR-011) —
+    // reduz a chance de o revisor ter os mesmos pontos cegos de quem escreveu.
+    const reviewRunConfig = { ...runConfig, llmProvider: resolveReviewProvider(runConfig) };
     const result = await generateJson({
       system,
       user: typeof userPayload === 'string' ? userPayload : JSON.stringify(userPayload),
-      runConfig,
+      runConfig: reviewRunConfig,
       signal: orchestrator.getSignal ? orchestrator.getSignal() : undefined,
       tier: 'economy'
     });

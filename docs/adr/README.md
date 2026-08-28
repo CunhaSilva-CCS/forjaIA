@@ -12,3 +12,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-008 — Prompt caching para Claude; sem mudança para os demais provedores](008-prompt-caching-claude.md)
 - [ADR-009 — CI no Node 22 (compatível com better-sqlite3 ≥13) + isolamento de DB por arquivo de teste](009-ci-test-isolation-sigsegv.md)
 - [ADR-010 — Modelo econômico na camada de revisão sênior, entregável intocado](010-model-tier-economy.md)
+- [ADR-011 — Diversidade de provedor na revisão sênior + scanner determinístico de segredos](011-review-diversity-and-secret-scan.md)

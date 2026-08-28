@@ -157,10 +157,11 @@ module.exports = {
     const { announceThinking, thinkAsSenior } = require('../lib/seniorEngineer');
     announceThinking(orchestrator, 'security');
 
-    // 1. Rodar análise estática de código (SAST)
+    // 1. Rodar análise estática de código (SAST) + scanner determinístico de segredos (ADR-011)
     orchestrator.log('security', 'Iniciando análise de código estática (SAST)...', 'info');
-    const staticIssues = runStaticAnalysis(files);
-    
+    const { scanForHardcodedSecrets } = require('../lib/secretScan');
+    const staticIssues = [...runStaticAnalysis(files), ...scanForHardcodedSecrets(files)];
+
     // 2. Inicializar sandbox para rodar testes dinâmicos (DAST)
     const sandboxRunner = require('../sandbox/runner');
     let dynamicIssues = [];
