@@ -53,9 +53,21 @@ const config = {
   anthropicModel: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
   anthropicVersion: process.env.ANTHROPIC_VERSION || '2023-06-01',
 
+  // Modelos "econômicos" — usados só na camada de revisão sênior opcional (thinkAsSenior,
+  // ver ADR-010), nunca nas etapas que geram o entregável (arquiteto/codificador/depurador/
+  // curador). Default vazio pra Gemini: hoje o único modelo Gemini suportado já é o mais barato
+  // da família (flash), sem um tier ainda mais leve conhecido — fica configurável via env pra
+  // quando existir.
+  geminiModelEconomy: process.env.GEMINI_MODEL_ECONOMY || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+  openaiModelEconomy: process.env.OPENAI_MODEL_ECONOMY || 'gpt-4.1-mini',
+  anthropicModelEconomy: process.env.ANTHROPIC_MODEL_ECONOMY || 'claude-haiku-4-5-20251001',
+
   // Ollama (opcional / local leve — não ideal como cérebro principal da forja)
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
   ollamaDefaultModel: process.env.OLLAMA_DEFAULT_MODEL || 'qwen2.5-coder:7b',
+  // Sem custo por token (é local), mas um modelo menor pra revisão sênior ainda economiza
+  // tempo real de CPU/RAM — relevante porque Ollama é o provedor default da forja.
+  ollamaModelEconomy: process.env.OLLAMA_MODEL_ECONOMY || 'qwen2.5-coder:3b',
 
   // Cursor Agent (CLI headless) — opcional, exige `cursor-agent login` prévio ou CURSOR_API_KEY
   cursorApiKey: process.env.CURSOR_API_KEY || '',

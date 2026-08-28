@@ -158,7 +158,8 @@ async function thinkAsSenior({ role, taskContract, userPayload, runConfig, orche
       system,
       user: typeof userPayload === 'string' ? userPayload : JSON.stringify(userPayload),
       runConfig,
-      signal: orchestrator.getSignal ? orchestrator.getSignal() : undefined
+      signal: orchestrator.getSignal ? orchestrator.getSignal() : undefined,
+      tier: 'economy'
     });
     if (result.tokens && orchestrator.recordTokens) {
       orchestrator.recordTokens(result.tokens, {
@@ -166,7 +167,7 @@ async function thinkAsSenior({ role, taskContract, userPayload, runConfig, orche
         model: result.model
       });
     }
-    orchestrator.log?.(role, `Revisão sênior concluída via ${result.provider}.`, 'success');
+    orchestrator.log?.(role, `Revisão sênior concluída via ${result.provider} (${result.model}).`, 'success');
     return result.data;
   } catch (err) {
     orchestrator.log?.(

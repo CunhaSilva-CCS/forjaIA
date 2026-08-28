@@ -445,12 +445,37 @@ function isRecoverableLlmError(err) {
   );
 }
 
-async function callByProvider(provider, { system, user, runConfig, signal }) {
+/**
+ * Modelo padrão ("premium") por provedor: o mesmo de sempre, usado pelas etapas que geram o
+ * entregável (arquiteto/codificador/depurador/curador). Modelo "economy": mais barato/rápido,
+ * usado só pela camada de revisão sênior opcional (thinkAsSenior, ver ADR-010) — economia real
+ * de tokens sem arriscar a qualidade do que o pipeline efetivamente produz.
+ */
+function resolveTierModel(provider, tier, runConfig) {
+  const economy = tier === 'economy';
+  if (provider === 'openai') {
+    return runConfig.openaiModel || (economy ? config.openaiModelEconomy : config.openaiModel);
+  }
+  if (provider === 'claude') {
+    return (
+      runConfig.claudeModel ||
+      runConfig.anthropicModel ||
+      (economy ? config.anthropicModelEconomy : config.anthropicModel)
+    );
+  }
+  if (provider === 'ollama') {
+    return runConfig.ollamaModel || (economy ? config.ollamaModelEconomy : config.ollamaDefaultModel);
+  }
+  // gemini
+  return runConfig.geminiModel || (economy ? config.geminiModelEconomy : config.geminiModel);
+}
+
+async function callByProvider(provider, { system, user, runConfig, signal, tier = 'premium' }) {
   if (provider === 'ollama') {
     return callOllama({
       system,
       user,
-      model: runConfig.ollamaModel || config.ollamaDefaultModel,
+      model: resolveTierModel('ollama', tier, runConfig),
       signal
     });
   }
@@ -467,7 +492,7 @@ async function callByProvider(provider, { system, user, runConfig, signal }) {
     return callOpenAICompatible({
       system,
       user,
-      model: runConfig.openaiModel || config.openaiModel,
+      model: resolveTierModel('openai', tier, runConfig),
       baseUrl: runConfig.openaiBaseUrl || config.openaiBaseUrl,
       signal
     });
@@ -477,7 +502,7 @@ async function callByProvider(provider, { system, user, runConfig, signal }) {
     return callClaude({
       system,
       user,
-      model: runConfig.claudeModel || runConfig.anthropicModel || config.anthropicModel,
+      model: resolveTierModel('claude', tier, runConfig),
       baseUrl: runConfig.anthropicBaseUrl || config.anthropicBaseUrl,
       signal,
       runConfig
@@ -488,7 +513,7 @@ async function callByProvider(provider, { system, user, runConfig, signal }) {
   return callGemini({
     system,
     user,
-    model: runConfig.geminiModel || config.geminiModel,
+    model: resolveTierModel('gemini', tier, runConfig),
     signal
   });
 }
@@ -509,7 +534,7 @@ function fallbackProviders(primary) {
   return order;
 }
 
-async function generateJson({ system, user, runConfig = {}, signal }) {
+async function generateJson({ system, user, runConfig = {}, signal, tier = 'premium' }) {
   const primary = resolveProvider(runConfig);
   const chain = fallbackProviders(primary);
   let lastError = null;
@@ -523,7 +548,7 @@ async function generateJson({ system, user, runConfig = {}, signal }) {
           if (provider === 'claude' && !config.anthropicApiKey) continue;
           if (provider === 'openai' && !config.openaiApiKey) continue;
 
-          const result = await callByProvider(provider, { system, user, runConfig, signal });
+          const result = await callByProvider(provider, { system, user, runConfig, signal, tier });
           if (provider !== primary && lastError) {
             result.fallbackFrom = primary;
             result.fallbackReason = String(lastError.message || lastError).slice(0, 240);
@@ -726,6 +751,7 @@ module.exports = {
   extractJson,
   resolveProvider,
   resolveGeminiModel,
+  resolveTierModel,
   providerStatus,
   probeLlm
 };
