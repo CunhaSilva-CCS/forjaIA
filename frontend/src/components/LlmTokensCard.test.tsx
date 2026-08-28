@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { LlmTokensCard } from './LlmTokensCard';
 import type { AppState } from '../hooks/useForjaApp';
 
@@ -38,8 +39,10 @@ describe('LlmTokensCard', () => {
     expect(screen.getByText('Fixo até o fim desta execução')).toBeInTheDocument();
   });
 
-  it('lista Cursor como opção de provedor e mostra o campo de modelo quando selecionado', () => {
+  it('lista Cursor como opção de provedor e mostra o campo de modelo quando selecionado', async () => {
+    const user = userEvent.setup();
     render(<LlmTokensCard s={makeState({ llmProvider: 'cursor', cursorModel: 'auto', setCursorModel: () => {} })} />);
+    await user.click(screen.getByLabelText('Provedor'));
     expect(screen.getByRole('option', { name: 'Cursor' })).toBeInTheDocument();
     expect(screen.getByLabelText('Modelo Cursor')).toHaveValue('auto');
   });

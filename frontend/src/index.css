@@ -545,6 +545,112 @@ select option {
   color: var(--ink);
 }
 
+/*
+ * Dropdown customizado (componente Dropdown.tsx) — substitui <select> nativo onde a lista de
+ * opções precisa ficar consistente com o resto da UI (a lista de um <select> é desenhada pelo
+ * SO, fora do alcance do CSS, e em várias combinações de navegador/SO ignora fonte/tema).
+ */
+.dd {
+  position: relative;
+  width: 100%;
+}
+
+.dd-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--panel-edge);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dd-trigger:hover:not(:disabled) {
+  border-color: rgba(var(--ember-rgb), 0.45);
+  background: var(--bg-sunken);
+}
+
+.dd-trigger:focus-visible {
+  border-color: var(--ember);
+  box-shadow: 0 0 0 3px var(--ember-glow);
+  outline: none;
+}
+
+.dd-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dd-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.dd-trigger-icon {
+  flex-shrink: 0;
+  color: var(--ember);
+  transition: transform 0.15s ease;
+}
+
+.dd[data-open='true'] .dd-trigger-icon {
+  transform: rotate(180deg);
+}
+
+.dd-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.dd-option {
+  padding: 7px 9px;
+  border-radius: 6px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dd-option:hover,
+.dd-option.highlighted {
+  background: rgba(var(--ember-rgb), 0.14);
+  color: var(--ink);
+}
+
+.dd-option.selected {
+  color: var(--ember);
+  font-weight: 600;
+}
+
+.dd-empty {
+  padding: 8px 9px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 textarea:focus,
 input:focus,
 select:focus {

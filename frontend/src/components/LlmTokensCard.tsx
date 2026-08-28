@@ -1,5 +1,14 @@
 import { formatTokens, pct } from '../utils/modelLimits';
+import { Dropdown } from './Dropdown';
 import type { AppState } from '../hooks/useForjaApp';
+
+const PROVIDER_OPTIONS = [
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'claude', label: 'Claude' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'ollama', label: 'Ollama' },
+  { value: 'cursor', label: 'Cursor' }
+];
 
 export function LlmTokensCard({ s }: { s: AppState }) {
   const modelOk = s.llmProbe?.ok === true;
@@ -25,38 +34,30 @@ export function LlmTokensCard({ s }: { s: AppState }) {
 
       <div className="field">
         <label htmlFor="llm-provider">Provedor</label>
-        <select
+        <Dropdown
           id="llm-provider"
           value={s.llmProvider}
           disabled={s.providerLocked}
+          ariaLabel="Provedor"
           title={s.providerLocked ? 'Fixo até o fim desta execução — o servidor ignora trocas em runs em andamento' : undefined}
-          onChange={(e) => {
-            const v = e.target.value as 'gemini' | 'claude' | 'openai' | 'ollama' | 'cursor';
-            s.setLlmProvider(v);
-            s.setUseOllama(v === 'ollama');
+          onChange={(v) => {
+            const provider = v as 'gemini' | 'claude' | 'openai' | 'ollama' | 'cursor';
+            s.setLlmProvider(provider);
+            s.setUseOllama(provider === 'ollama');
           }}
-        >
-          <option value="gemini">Gemini</option>
-          <option value="claude">Claude</option>
-          <option value="openai">OpenAI</option>
-          <option value="ollama">Ollama</option>
-          <option value="cursor">Cursor</option>
-        </select>
+          options={PROVIDER_OPTIONS}
+        />
         {s.providerLocked && <p className="field-hint">Fixo até o fim desta execução</p>}
       </div>
       {s.llmProvider === 'ollama' && (
-        <select
-          value={s.ollamaModel}
-          onChange={(e) => s.setOllamaModel(e.target.value)}
-          aria-label="Modelo Ollama"
-          style={{ width: '100%', marginBottom: 8 }}
-        >
-          {(s.ollamaModels.length ? s.ollamaModels : [s.ollamaModel]).map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
+        <div style={{ marginBottom: 8 }}>
+          <Dropdown
+            value={s.ollamaModel}
+            onChange={s.setOllamaModel}
+            ariaLabel="Modelo Ollama"
+            options={(s.ollamaModels.length ? s.ollamaModels : [s.ollamaModel]).map((m) => ({ value: m, label: m }))}
+          />
+        </div>
       )}
       {s.llmProvider === 'openai' && (
         <input

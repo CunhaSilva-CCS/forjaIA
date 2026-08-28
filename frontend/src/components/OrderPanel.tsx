@@ -1,4 +1,5 @@
 import { Check, FilePlus2, Play, Square } from 'lucide-react';
+import { Dropdown } from './Dropdown';
 import type { AppState } from '../hooks/useForjaApp';
 
 export function OrderPanel({ s }: { s: AppState }) {
@@ -29,23 +30,24 @@ export function OrderPanel({ s }: { s: AppState }) {
 
       <div className="field">
         <label htmlFor="project-select">Projeto</label>
-        <select
+        <Dropdown
           id="project-select"
           value={s.selectedProjectId || ''}
           disabled={s.isExecuting}
-          onChange={(e) => {
-            void s.selectProject(e.target.value || null);
+          ariaLabel="Projeto"
+          placeholder="— escolher pasta do workspace —"
+          emptyMessage="Nenhuma pasta no workspace."
+          onChange={(v) => {
+            void s.selectProject(v || null);
           }}
-        >
-          <option value="">— escolher pasta do workspace —</option>
-          {s.projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-              {p.source === 'workspace' ? ' · workspace' : ''}
-              {!p.existsOnDisk ? ' · pasta ausente' : ''}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: '— escolher pasta do workspace —' },
+            ...s.projects.map((p) => ({
+              value: p.id,
+              label: `${p.name}${p.source === 'workspace' ? ' · workspace' : ''}${!p.existsOnDisk ? ' · pasta ausente' : ''}`
+            }))
+          ]}
+        />
         {s.projects.length === 0 ? (
           <div className="empty-projects">Nenhuma pasta no workspace.</div>
         ) : (
@@ -71,15 +73,17 @@ export function OrderPanel({ s }: { s: AppState }) {
 
       <div className="field">
         <label htmlFor="environment">Ambiente</label>
-        <select
+        <Dropdown
           id="environment"
           value={s.environment}
           disabled={s.isExecuting}
-          onChange={(e) => s.setEnvironment(e.target.value as 'local' | 'staging')}
-        >
-          <option value="local">local (:5100)</option>
-          <option value="staging">staging (:5200)</option>
-        </select>
+          ariaLabel="Ambiente"
+          onChange={(v) => s.setEnvironment(v as 'local' | 'staging')}
+          options={[
+            { value: 'local', label: 'local (:5100)' },
+            { value: 'staging', label: 'staging (:5200)' }
+          ]}
+        />
       </div>
 
       <div className="actions-row">

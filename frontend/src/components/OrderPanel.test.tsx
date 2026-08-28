@@ -70,7 +70,8 @@ describe('OrderPanel', () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText('Projeto'), 'p1');
+    await user.click(screen.getByLabelText('Projeto'));
+    await user.click(screen.getByRole('option', { name: /meu-app/ }));
     expect(selectProject).toHaveBeenCalledWith('p1');
   });
 });
