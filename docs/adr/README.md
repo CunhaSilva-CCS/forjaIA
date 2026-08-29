@@ -51,3 +51,4 @@ comprova isso.
 - [ADR-031 — Deploy e teste humano no emulador Android](031-android-emulator-support.md)
 - [ADR-032 — Backup do SQLite + procedimento de restore documentado](032-database-backup.md)
 - [ADR-033 — Endpoint de saúde operacional agregada](033-ops-health-endpoint.md)
+- [ADR-034 — QA parava de confiar em código correto por causa de um acoplamento com os mocks](034-qa-suite-mock-coupling.md)

@@ -134,6 +134,21 @@ async function runAuthTests(baseUrl, orchestrator) {
   };
 }
 
+/**
+ * Achado real (dogfooding ao vivo, ver ADR-034): esta suíte foi escrita pra validar o formato
+ * EXATO dos MOCK_CODES de agent/coder.js (`{success:true, tasks:[...]}`, `{success:true,
+ * task:{id,...}}`) — o fallback offline usado só quando `config.allowMocks` está ligado. Mas ela
+ * roda incondicionalmente, inclusive contra código real gerado por LLM, que só é instruído sobre
+ * o contrato ABSTRATO da constituição (`{success, data|error}`), nunca os nomes de campo
+ * específicos `tasks`/`task`. Resultado observado: um app funcionalmente correto (200 com lista
+ * vazia, 201 com recurso criado, 400 exatamente onde esperado) reprovava 100% dos testes porque a
+ * asserção exigia literalmente a chave `tasks`/`task`, não qualquer JSON razoável.
+ *
+ * Mesmo padrão de tolerância que runAuthTests já usa (pickToken/pickUser aceitam vários formatos)
+ * — aplicado aqui pela primeira vez. Continua validando o que importa de verdade (status HTTP
+ * correto, o recurso criado tem id, a atualização realmente aplicou), só não trava mais em UMA
+ * convenção de nome de campo entre várias igualmente razoáveis.
+ */
 async function runCrudTests(baseUrl, orchestrator) {
   const tests = [
     { name: 'Listar Tarefas (GET /api/tasks) - Sucesso', passed: false, error: null },
@@ -143,14 +158,28 @@ async function runCrudTests(baseUrl, orchestrator) {
     { name: 'Deletar Tarefa (DELETE /api/tasks/:id) - Sucesso', passed: false, error: null }
   ];
 
+  // Lista pode vir como array na raiz, ou dentro de qualquer chave de envelope razoável.
+  const pickList = (data) => {
+    if (Array.isArray(data)) return data;
+    for (const key of ['tasks', 'data', 'items', 'results', 'todos']) {
+      if (Array.isArray(data?.[key])) return data[key];
+    }
+    return null;
+  };
+  // Recurso recém-criado pode vir na raiz, ou dentro de task/data/item.
+  const pickCreated = (data) => data?.id ? data : (data?.task || data?.data || data?.item || null);
+  const pickCompleted = (data) =>
+    data?.completed ?? data?.task?.completed ?? data?.data?.completed ?? data?.item?.completed;
+
   let createdTaskId = null;
 
   try {
     // Teste 1: GET /api/tasks
     orchestrator.log('qa', 'Executando teste: Listar Tarefas...', 'info');
     let res = await fetch(`${baseUrl}/api/tasks`);
-    let data = await res.json();
-    if (res.status === 200 && data.success === true && Array.isArray(data.tasks)) {
+    let data = await res.json().catch(() => null);
+    const list = pickList(data);
+    if (res.status === 200 && list !== null) {
       tests[0].passed = true;
     } else {
       tests[0].error = `Erro ao recuperar tarefas. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
@@ -163,26 +192,28 @@ async function runCrudTests(baseUrl, orchestrator) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Nova Tarefa de QA', description: 'Criada nos testes automatizados' })
     });
-    data = await res.json();
-    if (res.status === 201 && data.success === true && data.task && data.task.id) {
+    data = await res.json().catch(() => null);
+    const created = pickCreated(data);
+    if ((res.status === 201 || res.status === 200) && created?.id) {
       tests[1].passed = true;
-      createdTaskId = data.task.id;
+      createdTaskId = created.id;
     } else {
       tests[1].error = `Erro ao criar tarefa. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
     }
 
-    // Teste 3: POST /api/tasks (Sem título)
+    // Teste 3: POST /api/tasks (Sem título) — o status 4xx já é o sinal que importa; não exige
+    // mais nenhum formato específico de corpo de erro.
     orchestrator.log('qa', 'Executando teste: Criar Tarefa sem Título (Falha esperada)...', 'info');
     res = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: 'Sem título' })
     });
-    data = await res.json();
-    if (res.status === 400 && data.success === false) {
+    data = await res.json().catch(() => null);
+    if (res.status >= 400 && res.status < 500) {
       tests[2].passed = true;
     } else {
-      tests[2].error = `Esperado status 400. Status obtido: ${res.status}, Resposta: ${JSON.stringify(data)}`;
+      tests[2].error = `Esperado status 4xx. Status obtido: ${res.status}, Resposta: ${JSON.stringify(data)}`;
     }
 
     // Teste 4: PUT /api/tasks/:id
@@ -193,8 +224,8 @@ async function runCrudTests(baseUrl, orchestrator) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'Tarefa Atualizada pelo QA', completed: true })
       });
-      data = await res.json();
-      if (res.status === 200 && data.success === true && data.task.completed === true) {
+      data = await res.json().catch(() => null);
+      if (res.status === 200 && pickCompleted(data) === true) {
         tests[3].passed = true;
       } else {
         tests[3].error = `Erro ao atualizar. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
@@ -203,16 +234,17 @@ async function runCrudTests(baseUrl, orchestrator) {
       tests[3].error = 'Ignorado devido a falha na criação da tarefa.';
     }
 
-    // Teste 5: DELETE /api/tasks/:id
+    // Teste 5: DELETE /api/tasks/:id — 204 No Content é uma resposta válida e comum pra DELETE
+    // (sem corpo pra fazer .json()); a versão anterior desta suíte quebraria nesse caso.
     if (createdTaskId) {
       orchestrator.log('qa', 'Executando teste: Deletar Tarefa...', 'info');
       res = await fetch(`${baseUrl}/api/tasks/${createdTaskId}`, {
         method: 'DELETE'
       });
-      data = await res.json();
-      if (res.status === 200 && data.success === true) {
+      if (res.status === 204 || res.status === 200) {
         tests[4].passed = true;
       } else {
+        data = await res.json().catch(() => null);
         tests[4].error = `Erro ao deletar. Status: ${res.status}, Resposta: ${JSON.stringify(data)}`;
       }
     } else {
@@ -239,12 +271,23 @@ async function runRagTests(baseUrl, orchestrator) {
     { name: 'Query inválida (400)', passed: false, error: null }
   ];
 
+  // Mesmo raciocínio de runCrudTests (ver ADR-034): não exige mais a chave exata `matches`/
+  // `success` — qualquer array de resultado razoável ou sinal de saúde conta.
+  const pickMatches = (data) => {
+    if (Array.isArray(data)) return data;
+    for (const key of ['matches', 'results', 'data']) {
+      if (Array.isArray(data?.[key])) return data[key];
+    }
+    return null;
+  };
+
   try {
     orchestrator.log('qa', 'Executando teste: Health check RAG...', 'info');
     let res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
-    let data = await res.json();
-    if (res.ok && data.ok === true) tests[0].passed = true;
-    else tests[0].error = `HTTP ${res.status}: ${JSON.stringify(data)}`;
+    let data = await res.json().catch(() => null);
+    if (res.ok && (data?.ok === true || data?.status === 'ok' || data?.status === 'healthy' || data?.success === true)) {
+      tests[0].passed = true;
+    } else tests[0].error = `HTTP ${res.status}: ${JSON.stringify(data)}`;
 
     orchestrator.log('qa', 'Executando teste: Ingestão de texto...', 'info');
     res = await fetch(`${baseUrl}/api/ingest/text`, {
@@ -256,8 +299,8 @@ async function runRagTests(baseUrl, orchestrator) {
       }),
       signal: AbortSignal.timeout(30000)
     });
-    data = await res.json();
-    if (res.status === 201 && data.success === true) tests[1].passed = true;
+    data = await res.json().catch(() => null);
+    if (res.status === 201 || res.status === 200) tests[1].passed = true;
     else tests[1].error = `HTTP ${res.status}: ${JSON.stringify(data)}`;
 
     orchestrator.log('qa', 'Executando teste: Query com retrieval...', 'info');
@@ -267,8 +310,9 @@ async function runRagTests(baseUrl, orchestrator) {
       body: JSON.stringify({ query: 'O que o ForjaIA valida?', generate: false }),
       signal: AbortSignal.timeout(30000)
     });
-    data = await res.json();
-    if (res.ok && data.success === true && Array.isArray(data.matches) && data.matches.length > 0) {
+    data = await res.json().catch(() => null);
+    const matches = pickMatches(data);
+    if (res.ok && matches !== null && matches.length > 0) {
       tests[2].passed = true;
     } else tests[2].error = `HTTP ${res.status}: ${JSON.stringify(data)}`;
 
@@ -416,5 +460,6 @@ Retorne APENAS JSON:
     }
 
     return report;
-  }
+  },
+  __test__: { runCrudTests, runAuthTests, runRagTests, detectSuite }
 };
