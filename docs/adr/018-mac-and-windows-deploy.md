@@ -102,3 +102,10 @@ código deste ADR (`lib/windowsDeploy.js`, `supportsWindows`/`triggerWindowsBuil
 testado para qualquer projeto que já tenha `windows/` + o workflow commitados — só não foi possível
 demonstrar ponta a ponta contra o secPass por essa incompatibilidade de versão, específica desse
 projeto, não do ForjaIA.
+
+**Atualização (ADR-030)**: a lacuna acima — nunca ter rodado `triggerWindowsBuild` contra o GitHub
+Actions de verdade, só com `gh` mockado — foi fechada depois. `triggerWindowsBuild` não depende do
+conteúdo real de `windows/` (só da existência da pasta + do workflow), então não precisava de um
+scaffold `react-native-windows` de verdade pra ser verificado: um repositório descartável com um
+workflow mínimo `windows-latest` bastou. Rodei os dois caminhos (sucesso e falha) contra a API real
+— nenhum bug encontrado. Detalhes na seção "Verificação ao vivo" do ADR-030.

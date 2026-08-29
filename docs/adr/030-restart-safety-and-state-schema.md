@@ -26,10 +26,15 @@ se esconder.
 "restart", provoca um de verdade: roda um estágio real até ele pausar pra aprovação (persistindo
 via `pauseForApproval`/`persistTask` reais), depois instancia um **segundo** `Orchestrator` apontado
 pro mesmo banco (o construtor dele chama `restorePendingApproval()` de verdade) e compara o estado
-antes/depois. Cobre os 5 gates onde já se sabe que algo pode se perder:
-`deployStage→humanStage` (deployTargets — o achado que motivou isto), `humanStage→userFix`
-(humanReport com issues), `healerStage` (healingAttempts), `userFixStage` (userFixAttempts +
-userFixInvoked), `debuggerStage→healerStage` (lastDiagnosis).
+antes/depois. Cobre 9 gates: `deployStage→humanStage` (deployTargets — o achado que motivou isto),
+`humanStage→userFix` (humanReport com issues), `healerStage` (healingAttempts), `userFixStage`
+(userFixAttempts + userFixInvoked), `debuggerStage→healerStage` (lastDiagnosis),
+`orchestrator.run()→coderStage` (savedPlan/adrs — o PRIMEIRO gate da run inteira),
+`qaStage→securityStage` (lastTestReport — confirma que o veredito `passed` reconstruído bate com o
+original, não um recálculo divergente), `securityStage→devops/debugger` (lastSecurityReport),
+`prodReadyStage→report` (productionReady/gitBranch/prUrl — este confirma que o fallback pro
+`savedConfig` funciona de ponta a ponta, já que `productionReady` não tem restauração explícita em
+`currentTask`, só o fallback no ponto de leitura).
 
 Validei que o teste tem dente de verdade: comentei temporariamente a linha que persiste
 `deployTargets` em `deployStage.js`, rodei a suíte — o teste de restart falhou exatamente como
@@ -57,12 +62,29 @@ mock/fake server. Não é burocracia nova — é nomear o que este projeto já v
 bugs reais no ADR-029 que nenhum mock pegaria) e parar de deixar isso à mercê de quem lembrar de
 fazer.
 
+## Verificação ao vivo (retroativa) do checklist — `windowsDeploy.js` (ADR-018)
+
+Aplicando o checklist recém-criado num caso pré-existente que nunca tinha sido verificado: o
+ADR-018 implementou `triggerWindowsBuild` (dispara `gh workflow run`, acompanha via `gh run view`)
+mas só tinha teste com `gh` mockado — nunca rodou contra o GitHub Actions de verdade. Criei um
+repositório descartável (`forja-windows-deploy-verify-tmp`, apagado ao final) com uma pasta
+`windows/` mínima e um workflow real (`windows-latest`, `workflow_dispatch`), e rodei
+`triggerWindowsBuild` de verdade contra ele — dois cenários: build que passa (disparou, acompanhou,
+retornou `{ type: 'windows-ci', runId, runUrl }` corretamente) e build que falha de propósito
+(rejeitou com a mensagem e `runUrl` certos). **Nenhum bug encontrado desta vez** — diferente do
+Appium (ADR-029), a implementação já estava correta contra a API real; a lacuna era só a ausência
+da verificação em si, agora preenchida.
+
 ## Consequências
 
-- Backend: 294/294 (5 testes novos em `restartSafety.test.js`).
-- `restartSafety.test.js` cobre os 5 gates conhecidos, não todos os pontos de pausa possíveis do
-  pipeline — é um começo sistemático, não cobertura completa. Novo campo em `savedConfig`/
-  `currentTask` que precise sobreviver a restart deveria ganhar um teste aqui também, seguindo o
-  mesmo molde (rodar estágio real → instanciar segundo Orchestrator → comparar).
+- Backend: 298/298 (9 testes em `restartSafety.test.js`, expandido de 5 pra 9 gates nesta mesma
+  sessão).
+- `restartSafety.test.js` cobre 9 gates conhecidos, não todos os pontos de pausa possíveis do
+  pipeline (faltam, por exemplo, `coderStage→qaStage` isolado e `validateExisting→qaStage`, ambos
+  de menor risco por não introduzirem campo novo além do genérico `files`) — é cobertura ampla, não
+  completa. Novo campo em `savedConfig`/`currentTask` que precise sobreviver a restart deveria
+  ganhar um teste aqui também, seguindo o mesmo molde (rodar estágio real → instanciar segundo
+  Orchestrator → comparar).
 - O checklist de "Verificação ao vivo" é processo, não código — depende de disciplina continuada
-  pra valer, igual o resto da cultura de ADR do projeto já depende.
+  pra valer, igual o resto da cultura de ADR do projeto já depende. A verificação do
+  `windowsDeploy.js` acima é a primeira aplicação retroativa dele, prova de que não é só papel.
