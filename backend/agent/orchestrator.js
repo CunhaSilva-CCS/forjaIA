@@ -113,6 +113,7 @@ class Orchestrator extends EventEmitter {
       this.userFixAttempts = Number(row.config?.userFixAttempts || 0);
       this.lastDiagnosis = row.config?.lastDiagnosis || null;
       this.currentTask.humanReport = row.config?.humanReport || row.config?.lastHumanReport || null;
+      this.currentTask.deployTargets = row.config?.deployTargets || null;
       const tests = this.currentTask.tests || [];
       const securityIssues = this.currentTask.securityIssues || [];
       this.lastTestReport = {

@@ -22,6 +22,8 @@ async function run(orchestrator, runConfig) {
   const deployResult = await devops.deploy(orchestrator.currentTask.files, runConfig, orchestrator);
   orchestrator.throwIfAborted();
   orchestrator.currentTask.deployUrl = deployResult.url;
+  orchestrator.currentTask.deployTargets = deployResult.targets || null;
+  orchestrator.savedConfig = { ...orchestrator.savedConfig, deployTargets: orchestrator.currentTask.deployTargets };
   orchestrator.persistTask({ deployUrl: deployResult.url });
   const where = describeDeployTargets(deployResult);
   orchestrator.log('orchestrator', `Projeto implantado em ${where}`, 'success');

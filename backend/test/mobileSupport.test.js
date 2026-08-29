@@ -161,3 +161,31 @@ describe('productionChecklist — não se aplica a projeto mobile (ADR-014)', ()
     assert.deepEqual(result.checks, []);
   });
 });
+
+describe('mobileDeploy.resolveBundleId (ADR-029) — pra runMobileHumanTest saber qual app abrir', () => {
+  it('prioriza PRODUCT_BUNDLE_IDENTIFIER do pbxproj gerado pelo prebuild sobre o app.json', () => {
+    const { resolveBundleId } = fresh('../lib/mobileDeploy');
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-bundleid-pbx-'));
+    fs.writeFileSync(path.join(projectDir, 'app.json'), JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.appjson.velho' } } }));
+    const iosDir = path.join(projectDir, 'ios', 'Demo.xcodeproj');
+    fs.mkdirSync(iosDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(iosDir, 'project.pbxproj'),
+      'PRODUCT_BUNDLE_IDENTIFIER = com.forja.demo.real;\nOTHER_SETTING = 1;'
+    );
+    assert.equal(resolveBundleId(projectDir), 'com.forja.demo.real');
+  });
+
+  it('cai pro app.json quando não há pbxproj (prebuild ainda não rodou)', () => {
+    const { resolveBundleId } = fresh('../lib/mobileDeploy');
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-bundleid-appjson-'));
+    fs.writeFileSync(path.join(projectDir, 'app.json'), JSON.stringify({ expo: { ios: { bundleIdentifier: 'com.forja.fallback' } } }));
+    assert.equal(resolveBundleId(projectDir), 'com.forja.fallback');
+  });
+
+  it('retorna null sem quebrar quando não há pbxproj nem app.json com bundleIdentifier', () => {
+    const { resolveBundleId } = fresh('../lib/mobileDeploy');
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-bundleid-nada-'));
+    assert.equal(resolveBundleId(projectDir), null);
+  });
+});

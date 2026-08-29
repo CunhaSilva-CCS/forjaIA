@@ -23,20 +23,38 @@ async function run(orchestrator, runConfig) {
   orchestrator.broadcast('agent-active', { agent: 'human' });
 
   // Deploy mobile (Simulador) não tem URL HTTP — o teste humano via fetch não se aplica (ver
-  // ADR-014). Sem uma ferramenta de automação de UI nativa, o pipeline segue sem fingir cobertura
-  // que não existe, deixando isso explícito no relatório em vez de travar ou inventar resultado.
+  // ADR-014). Em vez disso tenta um teste real via Appium/XCUITest (ADR-029) contra o app já
+  // instalado; se não houver servidor Appium disponível no ambiente, degrada pro mesmo "skipped"
+  // explícito de antes em vez de travar ou inventar resultado.
   const { detectProjectType } = require('../../lib/projectType');
   if (detectProjectType(orchestrator.currentTask.files) === 'mobile-expo') {
-    orchestrator.log(
-      'human',
-      'Deploy mobile no Simulador — sem URL HTTP pra testar via fetch; teste humano automatizado não se aplica aqui.',
-      'warning'
+    const { runMobileHumanTest } = require('../../lib/mobileHumanTest');
+    const simTarget = (orchestrator.currentTask.deployTargets || []).find(
+      (t) => t.platform === 'ios-simulator' && t.ok
     );
+    const mobileCheck = await runMobileHumanTest({
+      simulatorUdid: simTarget?.simulatorUdid,
+      bundleId: simTarget?.bundleId,
+      runConfig,
+      orchestrator
+    });
+
+    if (!mobileCheck.available) {
+      orchestrator.log(
+        'human',
+        `Deploy mobile no Simulador — teste humano automatizado não rodou (${mobileCheck.skippedReason}).`,
+        'warning'
+      );
+    }
+
     const humanReport = {
-      passed: true,
-      skipped: true,
-      reason: 'Deploy mobile (Simulador) não expõe URL HTTP; sem ferramenta de automação de UI nativa disponível.',
-      issues: []
+      passed: mobileCheck.ok,
+      skipped: !mobileCheck.available,
+      reason: mobileCheck.available
+        ? null
+        : mobileCheck.skippedReason || 'Deploy mobile (Simulador) não expõe URL HTTP.',
+      issues: mobileCheck.issues || [],
+      screenshots: mobileCheck.screenshots || []
     };
     orchestrator.currentTask.humanReport = humanReport;
     orchestrator.savedConfig = {
@@ -45,10 +63,26 @@ async function run(orchestrator, runConfig) {
       lastHumanReport: humanReport
     };
     orchestrator.persistTask({ config: orchestrator.savedConfig });
-    orchestrator.broadcast('agent-finished', { agent: 'human', status: 'success', data: humanReport });
+    orchestrator.broadcast('agent-finished', {
+      agent: 'human',
+      status: humanReport.passed ? 'success' : 'failed',
+      data: humanReport
+    });
+
+    if (humanReport.passed) {
+      await orchestrator.pauseForApproval(
+        'prodReady',
+        mobileCheck.available
+          ? 'Teste humano no Simulador (Appium/XCUITest) aprovado. Aprove o checklist de produção.'
+          : 'Deploy mobile no Simulador — teste humano automatizado não se aplica aqui. Aprove o checklist de produção.'
+      );
+      return;
+    }
+
+    const n = Array.isArray(humanReport.issues) ? humanReport.issues.length : 0;
     await orchestrator.pauseForApproval(
-      'prodReady',
-      'Deploy mobile no Simulador — teste humano automatizado não se aplica. Aprove o checklist de produção.'
+      'userFix',
+      `Humano no Simulador (Appium/XCUITest) encontrou ${n} problema(s). Aprove o Corretor do Usuário (ou envie um relato próprio).`
     );
     return;
   }

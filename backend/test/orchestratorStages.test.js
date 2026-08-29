@@ -477,6 +477,87 @@ describe('humanStage', () => {
       human.execute = original;
     }
   });
+
+  describe('mobile — teste real via Appium/XCUITest (ADR-029, achado real: gap do ADR-014 fechado)', () => {
+    function mobileOrchestrator(extraPatch = {}) {
+      const mobilePkg = JSON.stringify({ dependencies: { expo: '^57.0.0' } });
+      return makeOrchestrator({
+        currentTask: {
+          id: 'fake-run',
+          files: [{ path: 'package.json', content: mobilePkg }],
+          tests: [],
+          securityIssues: [],
+          deployTargets: [{ platform: 'ios-simulator', ok: true, simulatorUdid: 'UDID-1', bundleId: 'com.forja.demo' }]
+        },
+        ...extraPatch
+      });
+    }
+
+    it('sem servidor Appium disponível: degrada pro skip explícito, sem travar o pipeline', async () => {
+      const mobileHumanTest = fresh('../lib/mobileHumanTest');
+      const original = mobileHumanTest.runMobileHumanTest;
+      mobileHumanTest.runMobileHumanTest = async () => ({
+        available: false,
+        ok: true,
+        skippedReason: 'servidor Appium não respondeu',
+        issues: [],
+        screenshots: []
+      });
+      try {
+        const stage = fresh('../agent/stages/humanStage');
+        const orch = mobileOrchestrator();
+        await stage.run(orch, {});
+        assert.equal(orch.currentTask.humanReport.skipped, true);
+        assert.equal(orch.pauseCalls[0].nextStage, 'prodReady');
+        assert.ok(orch.logs.some((l) => /não rodou/.test(l.message)));
+      } finally {
+        mobileHumanTest.runMobileHumanTest = original;
+      }
+    });
+
+    it('com Appium disponível e sem achados: teste passa de verdade, pausa em prodReady', async () => {
+      const mobileHumanTest = fresh('../lib/mobileHumanTest');
+      const original = mobileHumanTest.runMobileHumanTest;
+      let receivedArgs = null;
+      mobileHumanTest.runMobileHumanTest = async (args) => {
+        receivedArgs = args;
+        return { available: true, ok: true, issues: [], screenshots: ['/tmp/a.png'], clickedLabel: 'Começar' };
+      };
+      try {
+        const stage = fresh('../agent/stages/humanStage');
+        const orch = mobileOrchestrator();
+        await stage.run(orch, {});
+        assert.equal(receivedArgs.simulatorUdid, 'UDID-1');
+        assert.equal(receivedArgs.bundleId, 'com.forja.demo');
+        assert.equal(orch.currentTask.humanReport.skipped, false);
+        assert.equal(orch.currentTask.humanReport.passed, true);
+        assert.equal(orch.pauseCalls[0].nextStage, 'prodReady');
+      } finally {
+        mobileHumanTest.runMobileHumanTest = original;
+      }
+    });
+
+    it('com Appium disponível e achados HIGH/CRITICAL: pausa em userFix com a contagem certa', async () => {
+      const mobileHumanTest = fresh('../lib/mobileHumanTest');
+      const original = mobileHumanTest.runMobileHumanTest;
+      mobileHumanTest.runMobileHumanTest = async () => ({
+        available: true,
+        ok: false,
+        issues: [{ id: 'UX-MOBILE-BLANK-SCREEN', severity: 'CRITICAL' }],
+        screenshots: []
+      });
+      try {
+        const stage = fresh('../agent/stages/humanStage');
+        const orch = mobileOrchestrator();
+        await stage.run(orch, {});
+        assert.equal(orch.currentTask.humanReport.passed, false);
+        assert.equal(orch.pauseCalls[0].nextStage, 'userFix');
+        assert.match(orch.pauseCalls[0].message, /1 problema/);
+      } finally {
+        mobileHumanTest.runMobileHumanTest = original;
+      }
+    });
+  });
 });
 
 describe('prodReadyStage', () => {

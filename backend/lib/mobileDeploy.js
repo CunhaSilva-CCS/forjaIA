@@ -146,6 +146,39 @@ function runExpoRunIos(projectDir, udid, { signal } = {}) {
   });
 }
 
+/**
+ * O bundle id "de verdade" (o que acabou instalado no Simulador) vem do projeto nativo gerado pelo
+ * prebuild do `expo run:ios` (ios/*.xcodeproj/project.pbxproj), não do app.json — que pode divergir
+ * se alguém mudou um sem regenerar o outro. Cai pro app.json só se o pbxproj não existir/não tiver
+ * o campo (ex.: prebuild ainda não rodou por algum motivo).
+ */
+function resolveBundleId(projectDir) {
+  try {
+    const iosDir = path.join(projectDir, 'ios');
+    if (fs.existsSync(iosDir)) {
+      for (const entry of fs.readdirSync(iosDir)) {
+        if (!entry.endsWith('.xcodeproj')) continue;
+        const pbxproj = path.join(iosDir, entry, 'project.pbxproj');
+        if (!fs.existsSync(pbxproj)) continue;
+        const content = fs.readFileSync(pbxproj, 'utf8');
+        const match = content.match(/PRODUCT_BUNDLE_IDENTIFIER\s*=\s*([^\s;]+);/);
+        if (match) return match[1].replace(/^"|"$/g, '');
+      }
+    }
+  } catch {
+    // cai pro app.json abaixo
+  }
+  try {
+    const appJsonPath = fs.existsSync(path.join(projectDir, 'app.json'))
+      ? path.join(projectDir, 'app.json')
+      : path.join(projectDir, 'app.config.json');
+    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+    return appJson?.expo?.ios?.bundleIdentifier || null;
+  } catch {
+    return null;
+  }
+}
+
 async function deployToSimulator({ projectDir, orchestrator }) {
   const sim = await pickSimulator();
   orchestrator.log('devops', `Simulador escolhido: ${sim.name} (${sim.udid}).`, 'info');
@@ -159,7 +192,8 @@ async function deployToSimulator({ projectDir, orchestrator }) {
     type: 'ios-simulator',
     url: null,
     simulatorName: sim.name,
-    simulatorUdid: sim.udid
+    simulatorUdid: sim.udid,
+    bundleId: resolveBundleId(projectDir)
   };
 }
 
@@ -292,5 +326,6 @@ module.exports = {
   supportsMacCatalyst,
   findXcodeWorkspace,
   findBuiltMacApp,
+  resolveBundleId,
   __test__: { runExpoRunIos }
 };
