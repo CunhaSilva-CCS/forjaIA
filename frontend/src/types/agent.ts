@@ -178,6 +178,19 @@ export interface AuditRun {
   finishedAt: string | null;
 }
 
+export interface DogfoodStatus {
+  scheduled: boolean;
+  cronLine: string | null;
+  lastRun: {
+    startedAt: string | null;
+    finishedAt: string | null;
+    outcome: 'completed' | 'failed' | 'cancelled' | 'timeout' | 'no-task' | null;
+    runId: string | null;
+    testsPassed: number | null;
+    testsTotal: number | null;
+  } | null;
+}
+
 export interface TeamMember {
   id: string;
   name: string;

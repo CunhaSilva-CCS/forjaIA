@@ -1,5 +1,5 @@
 import { API_BASE, getStoredToken } from '../config';
-import type { ADR, AuditRun, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
+import type { ADR, AuditRun, DogfoodStatus, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
 
 interface RunQueuedResponse {
   queued?: boolean;
@@ -146,6 +146,9 @@ export const api = {
         avgTestPassRate: number | null;
         humanPassedRate: number | null;
       }>('/api/runs/stats/reliability')
+  },
+  ops: {
+    dogfood: () => request<DogfoodStatus>('/api/ops/dogfood')
   },
   audit: {
     run: (target: 'self' | 'project', projectPath?: string) =>

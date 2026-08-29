@@ -143,6 +143,12 @@ header.app-header.forge-panel::before {
   box-shadow: 0 0 0 2px rgba(var(--success-rgb), 0.22);
 }
 
+.infra-dot.warn {
+  background: var(--danger);
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.22);
+}
+
 .btn-tiny.is-on {
   border-color: rgba(var(--success-rgb), 0.5);
   color: var(--success);

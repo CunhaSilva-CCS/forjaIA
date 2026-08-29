@@ -5,6 +5,7 @@ import { connectAgentSocket } from '../services/ws';
 import { deriveAgentStates, idleAgents } from '../utils/deriveAgentStates';
 import { useFolderBrowser } from './useFolderBrowser';
 import { useServiceControl } from './useServiceControl';
+import { useDogfoodStatus } from './useDogfoodStatus';
 import type {
   ADR,
   AgentName,
@@ -666,6 +667,7 @@ export function useForjaApp() {
     showToast,
     refreshMeta
   );
+  const { dogfoodStatus, refreshDogfoodStatus } = useDogfoodStatus();
 
   const handleRun = async () => {
     if (isExecuting) return;
@@ -941,6 +943,8 @@ export function useForjaApp() {
     serviceBusy,
     refreshServiceStatus,
     runServiceAction,
+    dogfoodStatus,
+    refreshDogfoodStatus,
     pendingNextStage,
     approvalMessage,
     approveButtonLabel,

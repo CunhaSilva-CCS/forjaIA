@@ -82,9 +82,45 @@ function AuditRunCard({ run }: { run: AuditRun }) {
   );
 }
 
+function DogfoodStatusCard({ s }: { s: AppState }) {
+  const status = s.dogfoodStatus;
+  const lastRun = status?.lastRun;
+  return (
+    <div className="issue-card" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <strong>Dogfooding automático</strong>
+        <span className="status-badge">{status?.scheduled ? 'Agendado (semanal)' : 'Não agendado'}</span>
+      </div>
+      <p className="muted">
+        Toda segunda às 6h, roda uma forja real de ponta a ponta contra o próprio ForjaIA e aprova os gates
+        sozinho — mesma ideia da sessão de dogfooding ao vivo que achou o bug do ADR-034, agora sem precisar de
+        alguém acompanhando a tela. Ver ADR-035.
+      </p>
+      {!status?.scheduled && (
+        <p className="muted">
+          Nenhuma entrada de crontab com o dogfooding foi encontrada. Reinstale com{' '}
+          <code>crontab</code> (ver <code>docs/adr/035-scheduled-dogfooding.md</code>).
+        </p>
+      )}
+      {lastRun ? (
+        <p style={{ marginTop: 4 }}>
+          Última run: <strong>{lastRun.outcome}</strong> em {formatDate(lastRun.finishedAt)} —{' '}
+          {lastRun.testsPassed ?? '?'}/{lastRun.testsTotal ?? '?'} testes
+        </p>
+      ) : (
+        status?.scheduled && <p className="muted">Ainda sem nenhuma run registrada.</p>
+      )}
+      <button className="btn-link" style={{ alignSelf: 'flex-start' }} onClick={() => void s.refreshDogfoodStatus()}>
+        atualizar
+      </button>
+    </div>
+  );
+}
+
 export function AuditTab({ s }: { s: AppState }) {
   return (
     <div className="cards-stack">
+      <DogfoodStatusCard s={s} />
       <div className="issue-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <p className="muted">
           Semgrep (padrão determinístico) + npm audit (dependência vulnerável conhecida) — separado do pipeline de

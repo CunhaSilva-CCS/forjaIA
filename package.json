@@ -21,7 +21,8 @@
     "build": "npm run build --prefix frontend",
     "audit:self": "node scripts/independentAudit.js --target self",
     "audit:project": "node scripts/independentAudit.js --target project",
-    "backup:db": "node scripts/backup-db.js"
+    "backup:db": "node scripts/backup-db.js",
+    "dogfood": "node scripts/dogfood-forge.js"
   },
   "keywords": [
     "forjaia",

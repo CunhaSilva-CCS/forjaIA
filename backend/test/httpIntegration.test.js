@@ -86,6 +86,17 @@ describe('HTTP integration (server.js real, via fetch)', () => {
     assert.ok(Array.isArray(body.alerts));
   });
 
+  it('GET /api/ops/dogfood (ADR-035) exige token e devolve estado do agendamento', async () => {
+    const unauth = await fetch(`${BASE}/api/ops/dogfood`);
+    assert.equal(unauth.status, 401);
+
+    const res = await fetch(`${BASE}/api/ops/dogfood`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(typeof body.scheduled, 'boolean');
+    assert.ok(body.lastRun === null || typeof body.lastRun === 'object');
+  });
+
   it('GET /api/llm/usage (ADR-017) exige token e devolve periods + cooldowns', async () => {
     const unauth = await fetch(`${BASE}/api/llm/usage`);
     assert.equal(unauth.status, 401);

@@ -1,5 +1,6 @@
 import { Flame, RefreshCw, Square } from 'lucide-react';
 import type { AppState } from '../hooks/useForjaApp';
+import { formatDate } from '../utils/format';
 
 const PROVIDER_LABELS: Record<string, string> = {
   gemini: 'Gemini',
@@ -28,6 +29,16 @@ export function AppHeader({ s }: { s: AppState }) {
   const ollamaLabel = `Ollama ${s.ollamaOnline ? 'ok' : 'off'}`;
   const cursorLabel = `Cursor ${s.cursorOnline ? 'ok' : 'off'}`;
   const wsLabel = `WebSocket ${s.wsConnected ? 'online' : 'offline'}`;
+  const dogfoodScheduled = Boolean(s.dogfoodStatus?.scheduled);
+  const dogfoodLastRun = s.dogfoodStatus?.lastRun;
+  const dogfoodOk = dogfoodScheduled && dogfoodLastRun?.outcome !== 'failed' && dogfoodLastRun?.outcome !== 'timeout';
+  const dogfoodLabel = !dogfoodScheduled
+    ? 'Dogfooding automático: não agendado (ver ADR-035)'
+    : `Dogfooding automático: agendado (semanal)${
+        dogfoodLastRun
+          ? ` — última run ${dogfoodLastRun.outcome} em ${formatDate(dogfoodLastRun.finishedAt)} (${dogfoodLastRun.testsPassed ?? '?'}/${dogfoodLastRun.testsTotal ?? '?'} testes)`
+          : ' — ainda sem nenhuma run registrada'
+      }`;
   const engineTitle = `${PROVIDER_LABELS[s.llmProvider] || s.llmProvider} · ${s.llmProbe?.model || activeModelName}${
     engineWorking ? ' — em uso agora' : ''
   }${s.llmProbe?.detail ? `\n${s.llmProbe.detail}` : ''}`;
@@ -55,6 +66,11 @@ export function AppHeader({ s }: { s: AppState }) {
           <span className={`infra-dot ${s.ollamaOnline ? 'on' : ''}`} title={ollamaLabel} aria-label={ollamaLabel} />
           <span className={`infra-dot ${s.cursorOnline ? 'on' : ''}`} title={cursorLabel} aria-label={cursorLabel} />
           <span className={`infra-dot ${s.wsConnected ? 'on' : ''}`} title={wsLabel} aria-label={wsLabel} />
+          <span
+            className={`infra-dot ${dogfoodScheduled ? (dogfoodOk ? 'on' : 'warn') : ''}`}
+            title={dogfoodLabel}
+            aria-label={dogfoodLabel}
+          />
         </div>
         <div className="engine-strip" title={engineTitle} role="status" aria-label="Motor de IA em uso">
           <span className={`engine-pulse ${engineWorking ? 'live' : ''}`} />

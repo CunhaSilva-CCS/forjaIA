@@ -159,6 +159,15 @@ app.get('/api/ops/health', (req, res) => {
   }
 });
 
+app.get('/api/ops/dogfood', (req, res) => {
+  try {
+    const { getDogfoodStatus } = require('./lib/dogfoodStatus');
+    res.json(getDogfoodStatus());
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 /**
  * Auditoria independente (Semgrep + npm audit, ver ADR-021) — deliberadamente FORA do pipeline de
  * agentes: dispara sob demanda, roda em background (pode levar dezenas de segundos), nunca
