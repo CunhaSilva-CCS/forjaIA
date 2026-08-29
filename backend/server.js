@@ -139,6 +139,27 @@ app.post('/api/llm/cooldown/:provider/clear', (req, res) => {
 });
 
 /**
+ * Saúde operacional agregada (ver ADR-033) — sequência de falhas recentes, run travada,
+ * provedores em cooldown, num JSON só. Autenticado (diferente de /api/health, que é público e só
+ * cobre "o processo está de pé") — pensado pra um `curl` + cron externo verificar "está tudo bem?"
+ * sem expor detalhe operacional sem token.
+ */
+app.get('/api/ops/health', (req, res) => {
+  try {
+    const { computeOpsHealth } = require('./lib/opsHealth');
+    const { providerCooldown } = require('./lib/llmUsage');
+    const result = computeOpsHealth({
+      runsList: runs.list(20),
+      cooldowns: providerCooldown.listActive(),
+      orchestrator
+    });
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/**
  * Auditoria independente (Semgrep + npm audit, ver ADR-021) — deliberadamente FORA do pipeline de
  * agentes: dispara sob demanda, roda em background (pode levar dezenas de segundos), nunca
  * bloqueia uma run de forja/validação. 'project' valida o path com resolveWithinWorkspace, o

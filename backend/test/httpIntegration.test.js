@@ -73,6 +73,19 @@ describe('HTTP integration (server.js real, via fetch)', () => {
     assert.ok(Array.isArray(await res.json()));
   });
 
+  it('GET /api/ops/health (ADR-033) exige token e devolve os sinais agregados de verdade', async () => {
+    const unauth = await fetch(`${BASE}/api/ops/health`);
+    assert.equal(unauth.status, 401);
+
+    const res = await fetch(`${BASE}/api/ops/health`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(typeof body.ok, 'boolean');
+    assert.equal(typeof body.recentFailureStreak, 'number');
+    assert.ok(Array.isArray(body.activeCooldowns));
+    assert.ok(Array.isArray(body.alerts));
+  });
+
   it('GET /api/llm/usage (ADR-017) exige token e devolve periods + cooldowns', async () => {
     const unauth = await fetch(`${BASE}/api/llm/usage`);
     assert.equal(unauth.status, 401);
