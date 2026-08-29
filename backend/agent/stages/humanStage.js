@@ -29,9 +29,11 @@ async function run(orchestrator, runConfig) {
   const { detectProjectType } = require('../../lib/projectType');
   if (detectProjectType(orchestrator.currentTask.files) === 'mobile-expo') {
     const { runMobileHumanTest } = require('../../lib/mobileHumanTest');
-    const simTarget = (orchestrator.currentTask.deployTargets || []).find(
-      (t) => t.platform === 'ios-simulator' && t.ok
-    );
+    // Fallback pro savedConfig (mesmo padrão de emitReportPdf) — restorePendingApproval já
+    // restaura deployTargets em currentTask explicitamente, mas esse fallback é defesa em
+    // profundidade caso um caminho futuro reconstrua currentTask sem passar por lá.
+    const deployTargets = orchestrator.currentTask.deployTargets || orchestrator.savedConfig?.deployTargets || [];
+    const simTarget = deployTargets.find((t) => t.platform === 'ios-simulator' && t.ok);
     const mobileCheck = await runMobileHumanTest({
       simulatorUdid: simTarget?.simulatorUdid,
       bundleId: simTarget?.bundleId,

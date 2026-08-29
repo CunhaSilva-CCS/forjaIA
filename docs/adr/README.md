@@ -2,6 +2,22 @@
 
 Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidido, por quê, e o que isso custa. Não é changelog; é o raciocínio por trás de mudanças que não são óbvias só lendo o diff.
 
+## Checklist pra ADR que integra ferramenta externa nova
+
+Todo ADR que adiciona integração com uma ferramenta externa nova (CLI, servidor, driver — o padrão
+que Playwright/ADR-022 e Appium/ADR-029 já seguiam informalmente, formalizado no ADR-030) precisa de
+uma seção **"Verificação ao vivo"** descrevendo o que foi testado contra a ferramenta REAL, não só
+contra mock/fake server. Testes com mock continuam necessários (determinismo, velocidade), mas não
+substituem isso — o ADR-029 achou 2 bugs reais (timeout curto demais, sinal errado pra "elemento
+tocável") que nenhum mock pegaria, só apareceram testando contra Appium/XCUITest de verdade.
+
+## Checklist pra novo campo em `currentTask`/`savedConfig`
+
+Se um estágio grava `orchestrator.currentTask.X` e algum código lê esse campo direto de lá (não via
+`orchestrator.savedConfig?.X`), esse campo precisa sobreviver a um restart do processo no meio da
+run — ver ADR-030 pra regra completa e `backend/test/restartSafety.test.js` pro molde de teste que
+comprova isso.
+
 - [ADR-001 — Extrair estágios do orchestrator em módulos separados](001-orchestrator-stage-modules.md)
 - [ADR-002 — Decompor App.tsx e useForjaApp.ts](002-frontend-decomposition.md)
 - [ADR-003 — Chaos engineering real via API do Docker, com fallback simulado](003-real-chaos-engineering.md)
@@ -31,3 +47,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-027 — Fecha as lacunas de cobertura de teste no frontend](027-frontend-test-coverage-gaps.md)
 - [ADR-028 — UI de gestão de equipe (criar e desativar membros)](028-team-management-ui.md)
 - [ADR-029 — Teste humano real no Simulador via Appium/XCUITest](029-mobile-human-test-appium.md)
+- [ADR-030 — Segurança de restart sistemática + esquema canônico de estado de run](030-restart-safety-and-state-schema.md)
