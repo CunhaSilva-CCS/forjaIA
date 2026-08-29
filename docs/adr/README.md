@@ -27,3 +27,5 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-023 — Aba "Auditoria" na UI, fechando o loop do ADR-021](023-audit-tab-ui.md)
 - [ADR-024 — Teto de orçamento estimado por run, reusando o gate de aprovação existente](024-run-budget-cap.md)
 - [ADR-025 — Papel "viewer" + fecha o RBAC não-enforced em run/cancel/relato](025-rbac-viewer-role.md)
+- [ADR-026 — Corretor escala de provedor + consistência de sistema de módulos na constituição](026-userfix-escalation-and-module-consistency.md)
+- [ADR-027 — Fecha as lacunas de cobertura de teste no frontend](027-frontend-test-coverage-gaps.md)

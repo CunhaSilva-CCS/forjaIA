@@ -6,6 +6,7 @@ const os = require('os');
 process.env.FORJA_API_TOKEN = process.env.FORJA_API_TOKEN || 'test-token-forja';
 process.env.FORJA_DB_PATH = process.env.FORJA_DB_PATH || path.join(os.tmpdir(), `forja-userfix-${Date.now()}.db`);
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'sk-ant-test-key';
+process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
 
 function fresh(mod) {
   delete require.cache[require.resolve(mod)];
@@ -149,5 +150,78 @@ describe('userFix.execute — envio seletivo de arquivos (ADR-016)', () => {
     }
     assert.equal(result.length, 1);
     assert.equal(result[0].content, 'fixed');
+  });
+});
+
+describe('userFix.execute — escalada de provedor (ADR-026, achado real)', () => {
+  it('escalateProvider:true faz o Corretor usar um provedor DIFERENTE do primário', async () => {
+    // lib/llm.js destructura generateJson/resolveReviewProvider no topo de userFix.js — mocka o
+    // módulo ANTES de re-requerer userFix, senão o destructure já feito não pega o mock (mesmo
+    // padrão de dockerBuild.js/childProcess.spawn usado em vários outros testes desta suíte).
+    const llm = fresh('../lib/llm');
+    const originalGenerateJson = llm.generateJson;
+    let capturedProvider = null;
+    llm.generateJson = async ({ runConfig }) => {
+      capturedProvider = runConfig.llmProvider;
+      return {
+        data: { files: [{ path: 'a.js', content: 'fixed' }], summary: 'ok' },
+        provider: runConfig.llmProvider,
+        model: 'x',
+        tokens: null
+      };
+    };
+    const userFix = fresh('../agent/userFix');
+    const orchestrator = {
+      throwIfAborted: () => {},
+      log: () => {},
+      recordTokens: () => {},
+      getSignal: () => undefined,
+      userFixAttempts: 2
+    };
+    try {
+      await userFix.execute(
+        [{ path: 'a.js', content: 'x' }],
+        { userReport: 'conserta a.js' },
+        { llmProvider: 'claude', escalateProvider: true },
+        orchestrator
+      );
+      assert.notEqual(capturedProvider, 'claude', 'deveria ter escalado pra outro provedor');
+    } finally {
+      llm.generateJson = originalGenerateJson;
+    }
+  });
+
+  it('sem escalateProvider (comportamento normal), usa o provedor pedido sem trocar', async () => {
+    const llm = fresh('../lib/llm');
+    const originalGenerateJson = llm.generateJson;
+    let capturedProvider = null;
+    llm.generateJson = async ({ runConfig }) => {
+      capturedProvider = runConfig.llmProvider;
+      return {
+        data: { files: [{ path: 'a.js', content: 'fixed' }], summary: 'ok' },
+        provider: runConfig.llmProvider,
+        model: 'x',
+        tokens: null
+      };
+    };
+    const userFix = fresh('../agent/userFix');
+    const orchestrator = {
+      throwIfAborted: () => {},
+      log: () => {},
+      recordTokens: () => {},
+      getSignal: () => undefined,
+      userFixAttempts: 0
+    };
+    try {
+      await userFix.execute(
+        [{ path: 'a.js', content: 'x' }],
+        { userReport: 'conserta a.js' },
+        { llmProvider: 'claude', escalateProvider: false },
+        orchestrator
+      );
+      assert.equal(capturedProvider, 'claude');
+    } finally {
+      llm.generateJson = originalGenerateJson;
+    }
   });
 });

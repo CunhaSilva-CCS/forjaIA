@@ -85,6 +85,12 @@ não deixe pra eles encontrarem o óbvio):
    fs.mkdirSync(path.dirname(caminho), { recursive: true }) — nunca assuma que a pasta já foi criada.
 9. Todo import/require que você escreve corresponde a um arquivo que você está de fato entregando
    na resposta — nunca referencie um módulo que não está no seu próprio "files".
+10. Sistema de módulos consistente com package.json: se "type":"module" está presente, TODO
+    arquivo .js usa import/export (nunca require/module.exports); se ausente, o inverso. Antes de
+    reescrever QUALQUER arquivo .js, releia o "type" do package.json que te foi enviado — mesmo
+    quando você só está corrigindo um bug pontual num arquivo específico, não o package.json em
+    si. Um arquivo sozinho no padrão errado derruba o processo inteiro com
+    "ReferenceError: require is not defined in ES module scope" (ou o equivalente inverso).
 
 CRITÉRIO DE EXCELÊNCIA
 Pergunte-se: "Eu aprovaria este PR num banco/fintech/saúde?" Se não, reescreva / reporte a falha com clareza.

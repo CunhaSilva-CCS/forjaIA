@@ -62,6 +62,11 @@ class Orchestrator extends EventEmitter {
     this.healingAttempts = 0;
     this.userFixInvoked = false;
     this.maxHealingAttempts = 3;
+    // Achado real (auditoria funcional ao vivo): userFix.js retentava indefinidamente com o
+    // MESMO provedor sem nunca escalar — vi 4 falhas seguidas em Ollama local antes de acertar
+    // na 5ª. Mesmo contador/escalada que o Curador já usa (ADR-013), agora espelhado aqui.
+    this.userFixAttempts = 0;
+    this.maxUserFixAttemptsBeforeEscalate = 3;
     this.lastTestReport = null;
     this.lastSecurityReport = null;
     this.lastDiagnosis = null;
@@ -105,6 +110,7 @@ class Orchestrator extends EventEmitter {
       this.savedPrompt = row.prompt;
       this.healingAttempts = Number(row.config?.healingAttempts || 0);
       this.userFixInvoked = Boolean(row.config?.userFixInvoked);
+      this.userFixAttempts = Number(row.config?.userFixAttempts || 0);
       this.lastDiagnosis = row.config?.lastDiagnosis || null;
       this.currentTask.humanReport = row.config?.humanReport || row.config?.lastHumanReport || null;
       const tests = this.currentTask.tests || [];
@@ -281,7 +287,8 @@ class Orchestrator extends EventEmitter {
     this.savedConfig = {
       ...this.savedConfig,
       pendingNextStage: nextStage,
-      healingAttempts: this.healingAttempts
+      healingAttempts: this.healingAttempts,
+      userFixAttempts: this.userFixAttempts
     };
     // currentTask.config é o que GET /api/agent/status devolve direto (sem passar
     // por savedConfig); sem este sync, healingAttempts fica correto no WS/DB mas
@@ -316,6 +323,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.userFixAttempts = 0;
     this.createAbortController();
 
     const owner = runConfig.owner || options.owner || null;
@@ -499,7 +507,7 @@ class Orchestrator extends EventEmitter {
     }
     const runConfig = normalizeRunConfig({ ...this.savedConfig, ...incoming, mode: incoming.mode || mode });
     delete runConfig.pendingNextStage;
-    this.savedConfig = { ...runConfig, healingAttempts: this.healingAttempts };
+    this.savedConfig = { ...runConfig, healingAttempts: this.healingAttempts, userFixAttempts: this.userFixAttempts };
 
     if (planPatch) {
       if (planPatch.files && nextStage === 'coder') this.savedPlan.files = planPatch.files;
@@ -697,6 +705,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.userFixAttempts = 0;
     this.createAbortController();
 
     try {

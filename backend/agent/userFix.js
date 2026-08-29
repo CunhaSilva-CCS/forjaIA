@@ -1,6 +1,6 @@
 const path = require('path');
 const config = require('../lib/config');
-const { generateJson } = require('../lib/llm');
+const { generateJson, resolveReviewProvider } = require('../lib/llm');
 const { composeSystemPrompt, announceThinking } = require('../lib/seniorEngineer');
 
 function reportBlob(report) {
@@ -228,11 +228,26 @@ ${JSON.stringify(manifestOnly.map((f) => f.path))}\n`
 Corrija os problemas relatados. Devolva o conteúdo completo de cada arquivo alterado.
 `;
 
+    // Achado real (auditoria funcional ao vivo, ver ADR-026): tentar de novo com o MESMO
+    // provedor que já falhou repetidas vezes tende a repetir o mesmo erro de formatação/
+    // raciocínio — mesmo critério que o Curador já usa (ADR-013), escalando só quando já não há
+    // muito a perder (a partir da 3ª tentativa, ver userFixStage.js).
+    const effectiveRunConfig = runConfig.escalateProvider
+      ? { ...runConfig, llmProvider: resolveReviewProvider(runConfig) }
+      : runConfig;
+    if (runConfig.escalateProvider) {
+      orchestrator.log(
+        'userFix',
+        `Tentativa ${orchestrator.userFixAttempts + 1} — escalando para o provedor ${effectiveRunConfig.llmProvider}.`,
+        'warning'
+      );
+    }
+
     try {
       const result = await generateJson({
         system,
         user,
-        runConfig,
+        runConfig: effectiveRunConfig,
         signal: orchestrator.getSignal()
       });
       if (result.tokens) {

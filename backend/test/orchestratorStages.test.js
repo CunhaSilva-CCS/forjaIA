@@ -34,6 +34,8 @@ function makeOrchestrator(patch = {}) {
     savedPlan: { files: [{ name: 'a.js', path: 'a.js' }], adrs: [] },
     healingAttempts: 0,
     maxHealingAttempts: 3,
+    userFixAttempts: 0,
+    maxUserFixAttemptsBeforeEscalate: 3,
     lastTestReport: null,
     lastSecurityReport: null,
     lastDiagnosis: null,
@@ -552,6 +554,60 @@ describe('userFixStage', () => {
       await stage.run(orch, {});
       assert.equal(orch.pauseCalls[0].nextStage, 'userFix');
       assert.match(orch.pauseCalls[0].message, /sem contexto suficiente/);
+    } finally {
+      userFix.execute = original;
+    }
+  });
+
+  it('achado real (auditoria funcional ao vivo): não escala provedor nas duas primeiras tentativas', async () => {
+    const userFix = fresh('../agent/userFix');
+    const original = userFix.execute;
+    let capturedRunConfig = null;
+    userFix.execute = async (files, report, runConfig) => {
+      capturedRunConfig = runConfig;
+      return [{ path: 'a.js', content: 'corrigido' }];
+    };
+    try {
+      const stage = fresh('../agent/stages/userFixStage');
+      const orch = makeOrchestrator({ userFixAttempts: 0, maxUserFixAttemptsBeforeEscalate: 3 });
+      await stage.run(orch, {});
+      assert.equal(capturedRunConfig.escalateProvider, false);
+      assert.equal(orch.userFixAttempts, 1);
+    } finally {
+      userFix.execute = original;
+    }
+  });
+
+  it('achado real (auditoria funcional ao vivo): escala provedor a partir da 3ª tentativa, sem teto pra desistir', async () => {
+    const userFix = fresh('../agent/userFix');
+    const original = userFix.execute;
+    let capturedRunConfig = null;
+    userFix.execute = async (files, report, runConfig) => {
+      capturedRunConfig = runConfig;
+      return [{ path: 'a.js', content: 'corrigido' }];
+    };
+    try {
+      const stage = fresh('../agent/stages/userFixStage');
+      // userFixAttempts=2 → esta é a tentativa #3.
+      const orch = makeOrchestrator({ userFixAttempts: 2, maxUserFixAttemptsBeforeEscalate: 3 });
+      await stage.run(orch, {});
+      assert.equal(capturedRunConfig.escalateProvider, true);
+    } finally {
+      userFix.execute = original;
+    }
+  });
+
+  it('achado real: uma tentativa que FALHA também conta pro contador (senão a escalada nunca chegaria)', async () => {
+    const userFix = fresh('../agent/userFix');
+    const original = userFix.execute;
+    userFix.execute = async () => {
+      throw new Error('formato inválido');
+    };
+    try {
+      const stage = fresh('../agent/stages/userFixStage');
+      const orch = makeOrchestrator({ userFixAttempts: 0 });
+      await stage.run(orch, {});
+      assert.equal(orch.userFixAttempts, 1);
     } finally {
       userFix.execute = original;
     }
