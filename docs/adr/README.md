@@ -29,3 +29,4 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-025 — Papel "viewer" + fecha o RBAC não-enforced em run/cancel/relato](025-rbac-viewer-role.md)
 - [ADR-026 — Corretor escala de provedor + consistência de sistema de módulos na constituição](026-userfix-escalation-and-module-consistency.md)
 - [ADR-027 — Fecha as lacunas de cobertura de teste no frontend](027-frontend-test-coverage-gaps.md)
+- [ADR-028 — UI de gestão de equipe (criar e desativar membros)](028-team-management-ui.md)

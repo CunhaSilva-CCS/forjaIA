@@ -385,6 +385,21 @@ app.post('/api/team/members', (req, res) => {
   }
 });
 
+app.post('/api/team/members/:id/deactivate', (req, res) => {
+  try {
+    if (!req.member?.isAdmin && req.member?.role !== 'admin') {
+      return res.status(403).json({ error: 'Somente admin pode desativar membros' });
+    }
+    const { team } = require('./lib/team');
+    if (req.params.id === 'admin' || !team.get(req.params.id)) {
+      return res.status(404).json({ error: 'Membro não encontrado' });
+    }
+    res.json(team.deactivate(req.params.id));
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 app.get('/api/team/board', (_req, res) => {
   try {
     res.json(runs.teamBoard(50));

@@ -168,4 +168,48 @@ describe('HTTP integration (server.js real, via fetch)', () => {
     });
     assert.equal(asAdmin.status, 201);
   });
+
+  it('POST /api/team/members/:id/deactivate exige admin e desativa de verdade (achado real: rota nunca existiu)', async () => {
+    const created = await fetch(`${BASE}/api/team/members`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Descartável', role: 'qa', token: 'token-descartavel-24-chars' })
+    });
+    const member = await created.json();
+
+    const adminRes = await fetch(`${BASE}/api/team`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const { bootstrapTokens } = await adminRes.json();
+
+    const asLead = await fetch(`${BASE}/api/team/members/${member.id}/deactivate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootstrapTokens.lead}` }
+    });
+    assert.equal(asLead.status, 403);
+
+    const asAdmin = await fetch(`${BASE}/api/team/members/${member.id}/deactivate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    assert.equal(asAdmin.status, 200);
+
+    const afterRes = await fetch(`${BASE}/api/team`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const after = await afterRes.json();
+    assert.ok(!after.members.some((m) => m.id === member.id), 'membro desativado não deveria mais aparecer na listagem');
+  });
+
+  it('POST /api/team/members/:id/deactivate com id inexistente responde 404', async () => {
+    const res = await fetch(`${BASE}/api/team/members/id-que-nao-existe/deactivate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('POST /api/team/members/admin/deactivate responde 404 (não dá pra desativar o admin)', async () => {
+    const res = await fetch(`${BASE}/api/team/members/admin/deactivate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    assert.equal(res.status, 404);
+  });
 });

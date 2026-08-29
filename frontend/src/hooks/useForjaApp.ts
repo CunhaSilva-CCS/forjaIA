@@ -632,6 +632,36 @@ export function useForjaApp() {
     }
   };
 
+  const refreshTeamInfo = async () => {
+    try {
+      const info = await api.team.list();
+      setTeamInfo(info);
+    } catch {
+      // ignore
+    }
+  };
+
+  const createTeamMember = async (body: { name: string; role: string; token: string }) => {
+    try {
+      await api.team.createMember(body);
+      showToast(`Membro "${body.name}" criado`);
+      await refreshTeamInfo();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Falha ao criar membro');
+      throw err;
+    }
+  };
+
+  const deactivateTeamMember = async (id: string, name: string) => {
+    try {
+      await api.team.deactivateMember(id);
+      showToast(`Membro "${name}" desativado`);
+      await refreshTeamInfo();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Falha ao desativar membro');
+    }
+  };
+
   const { serviceStatus, serviceBusy, refreshServiceStatus, runServiceAction } = useServiceControl(
     showToast,
     refreshMeta
@@ -904,6 +934,9 @@ export function useForjaApp() {
     teamInfo,
     teamBoard,
     refreshTeamBoard,
+    refreshTeamInfo,
+    createTeamMember,
+    deactivateTeamMember,
     serviceStatus,
     serviceBusy,
     refreshServiceStatus,

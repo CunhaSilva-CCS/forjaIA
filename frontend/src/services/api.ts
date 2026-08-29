@@ -206,7 +206,9 @@ export const api = {
       request<{ id: string; name: string; role: string; isAdmin: boolean }>('/api/team/me'),
     board: () => request<TeamBoard>('/api/team/board'),
     createMember: (body: { name: string; role: string; token: string }) =>
-      request('/api/team/members', { method: 'POST', body: JSON.stringify(body) })
+      request('/api/team/members', { method: 'POST', body: JSON.stringify(body) }),
+    deactivateMember: (id: string) =>
+      request<{ success: boolean }>(`/api/team/members/${id}/deactivate`, { method: 'POST' })
   },
   services: {
     status: () =>
