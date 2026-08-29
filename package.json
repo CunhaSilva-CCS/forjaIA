@@ -20,7 +20,8 @@
     "test:frontend": "npm test --prefix frontend",
     "build": "npm run build --prefix frontend",
     "audit:self": "node scripts/independentAudit.js --target self",
-    "audit:project": "node scripts/independentAudit.js --target project"
+    "audit:project": "node scripts/independentAudit.js --target project",
+    "backup:db": "node scripts/backup-db.js"
   },
   "keywords": [
     "forjaia",

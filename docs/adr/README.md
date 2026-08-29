@@ -49,3 +49,4 @@ comprova isso.
 - [ADR-029 — Teste humano real no Simulador via Appium/XCUITest](029-mobile-human-test-appium.md)
 - [ADR-030 — Segurança de restart sistemática + esquema canônico de estado de run](030-restart-safety-and-state-schema.md)
 - [ADR-031 — Deploy e teste humano no emulador Android](031-android-emulator-support.md)
+- [ADR-032 — Backup do SQLite + procedimento de restore documentado](032-database-backup.md)

@@ -40,6 +40,8 @@ const config = {
   workspaceRoot: ensureDir(resolveWorkspaceRoot(process.env.FORJA_WORKSPACE_ROOT)),
   dataDir,
   dbPath: process.env.FORJA_DB_PATH || path.join(dataDir, 'forja.db'),
+  backupDir: process.env.FORJA_BACKUP_DIR || path.join(dataDir, 'backups'),
+  backupRetentionCount: Number(process.env.FORJA_BACKUP_RETENTION || 14),
 
   // Provedores fortes (recomendados para Arquiteto/Codificador/Curador)
   defaultLlmProvider: (process.env.FORJA_LLM_PROVIDER || 'ollama').toLowerCase(),
