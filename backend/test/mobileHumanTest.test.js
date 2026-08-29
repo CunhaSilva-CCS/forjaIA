@@ -67,6 +67,41 @@ describe('extractLabels', () => {
   });
 });
 
+describe('extractTappableLabels (achado real, verificado ao vivo contra um app React Native de verdade no Simulador)', () => {
+  it('ignora texto estático mesmo quando accessible="true" (VoiceOver expõe título como acessível, mas não é tocável)', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    // Mesma forma da árvore real capturada: o MESMO texto aparece duas vezes (nó "cru" +
+    // representação de navegação do VoiceOver), a segunda com accessible="true".
+    const xml = `
+      <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" label="Entrar no App" name="Entrar no App" enabled="true" visible="true" accessible="false">
+      <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" label="Entrar no App" name="Entrar no App" enabled="true" visible="true" accessible="true">
+    `;
+    assert.deepEqual(extractTappableLabels(xml), []);
+  });
+
+  it('inclui um elemento XCUIElementTypeOther tocável — o tipo real que Pressable/TouchableOpacity do RN vira no iOS', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    const xml = `<XCUIElementTypeOther type="XCUIElementTypeOther" label="Criar conta" name="Criar conta" enabled="true" visible="true" accessible="true" x="39" y="560">`;
+    assert.deepEqual(extractTappableLabels(xml), ['Criar conta']);
+  });
+
+  it('ignora elemento desabilitado (enabled="false") mesmo que seja tocável em tipo/accessible', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    const xml = `<XCUIElementTypeOther type="XCUIElementTypeOther" label="Enviar" name="Enviar" enabled="false" visible="true" accessible="true">`;
+    assert.deepEqual(extractTappableLabels(xml), []);
+  });
+
+  it('ignora campo de texto/senha e imagem, mesmo accessible e enabled', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    const xml = `
+      <XCUIElementTypeTextField type="XCUIElementTypeTextField" label="Email" name="Email" enabled="true" visible="true" accessible="true">
+      <XCUIElementTypeSecureTextField type="XCUIElementTypeSecureTextField" label="Senha" name="Senha" enabled="true" visible="true" accessible="true">
+      <XCUIElementTypeImage type="XCUIElementTypeImage" label="Logo" name="Logo" enabled="true" visible="true" accessible="true">
+    `;
+    assert.deepEqual(extractTappableLabels(xml), []);
+  });
+});
+
 describe('runMobileHumanTest — achado real: contra um servidor Appium fake que fala o protocolo de verdade', () => {
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-mobile-project-'));
 
@@ -133,7 +168,7 @@ describe('runMobileHumanTest — achado real: contra um servidor Appium fake que
     }
   });
 
-  it('achado real: encontra um botão plausível na árvore, toca de verdade e tira o screenshot de depois', async () => {
+  it('achado real: ignora texto estático "acessível" (VoiceOver) e toca no elemento realmente tocável, tira o screenshot de depois', async () => {
     const onePxPng = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       'base64'
@@ -144,7 +179,15 @@ describe('runMobileHumanTest — achado real: contra um servidor Appium fake que
       if (req.method === 'POST' && req.url === '/session') return sendJson(res, 200, { sessionId: 'sess-2' });
       if (req.url === '/session/sess-2/screenshot') return sendJson(res, 200, onePxPng);
       if (req.url === '/session/sess-2/source') {
-        return sendJson(res, 200, '<XCUIElementTypeButton label="Começar" name="btn" /><XCUIElementTypeStaticText label="Bem-vindo" />');
+        // Mesma forma da árvore real: um título estático "Entrar..." também bateria no regex de
+        // CTA, mas não é tocável — só o XCUIElementTypeOther com accessible+enabled deve ser
+        // escolhido.
+        return sendJson(
+          res,
+          200,
+          '<XCUIElementTypeStaticText type="XCUIElementTypeStaticText" label="Entrar no App" name="Entrar no App" enabled="true" visible="true" accessible="true">' +
+            '<XCUIElementTypeOther type="XCUIElementTypeOther" label="Começar" name="btn" enabled="true" visible="true" accessible="true">'
+        );
       }
       if (req.method === 'POST' && req.url === '/session/sess-2/element') {
         assert.match(body.value, /label == 'Começar'/);

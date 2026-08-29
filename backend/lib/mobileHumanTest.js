@@ -16,11 +16,17 @@ const { resolveScreenshotsDir } = require('./browserCheck');
 
 const APPIUM_URL = (process.env.FORJA_APPIUM_URL || 'http://127.0.0.1:4723').replace(/\/$/, '');
 const APPIUM_TIMEOUT_MS = Number(process.env.FORJA_APPIUM_TIMEOUT_MS || 20000);
+// Achado real (verificação ao vivo contra um Appium/XCUITest de verdade, não só mock): a criação
+// da sessão dispara um build nativo do WebDriverAgent via xcodebuild na primeira vez que aquele
+// destino/UDID é usado — o próprio Appium espera até 2×60s só nessa etapa (2 tentativas de
+// startup), e o xcodebuild em si pode levar minutos além disso. 20s (bom o bastante pra
+// screenshot/source/click de rotina) derrubava a criação de sessão antes de ela terminar.
+const SESSION_TIMEOUT_MS = Number(process.env.FORJA_APPIUM_SESSION_TIMEOUT_MS || 180000);
 const CTA_PATTERN = /entrar|login|começar|comecar|iniciar|criar|enviar|salvar|continuar/i;
 
-async function appiumFetch(url, options = {}) {
+async function appiumFetch(url, options = {}, timeoutMs = APPIUM_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), APPIUM_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     const body = await res.json().catch(() => null);
@@ -46,7 +52,8 @@ async function checkAppiumAvailable() {
 
 /** Extração leve dos rótulos visíveis na árvore de acessibilidade (XML do XCUITest) — mesmo
  * espírito do parsing de botões que summarizeHtml já faz pro lado web, sem puxar um parser XML só
- * pra isso. */
+ * pra isso. Usada só pra "a tela tem algum texto visível" (checagem de tela em branco) — inclui
+ * texto estático de propósito. */
 function extractLabels(pageSourceXml) {
   const labels = new Set();
   const re = /(?:label|name)="([^"]+)"/g;
@@ -57,23 +64,63 @@ function extractLabels(pageSourceXml) {
   return [...labels];
 }
 
+/**
+ * Achado real (verificação ao vivo contra um app React Native de verdade no Simulador, 2 rodadas
+ * de ajuste): em RN no iOS, um botão tocável (Pressable/TouchableOpacity) normalmente vira
+ * `XCUIElementTypeOther` na árvore de acessibilidade, NÃO `XCUIElementTypeButton` — filtrar só por
+ * tipo erraria justamente nos apps mais comuns. Primeira tentativa: filtrar só por
+ * `accessible="true"` — errado também, porque o iOS expõe TEXTO ESTÁTICO como `accessible="true"`
+ * pra leitura por VoiceOver (confirmado: o mesmo título "Entrar no SecPass" aparece DUAS vezes na
+ * árvore real, uma com `accessible="false"` e outra com `accessible="true"`, mesmas coordenadas —
+ * é a representação de navegação do VoiceOver, não um sinal de "isto é tocável"). O sinal certo é
+ * a combinação: tipo de elemento que não é claramente não-interativo (texto/imagem/campo/app) E
+ * `accessible="true"` E `enabled="true"`.
+ */
+const NON_TAPPABLE_TYPES = new Set([
+  'XCUIElementTypeApplication',
+  'XCUIElementTypeStaticText',
+  'XCUIElementTypeImage',
+  'XCUIElementTypeTextField',
+  'XCUIElementTypeSecureTextField',
+  'XCUIElementTypeScrollView',
+  'XCUIElementTypeWindow'
+]);
+
+function extractTappableLabels(pageSourceXml) {
+  const labels = new Set();
+  const tagRe = /<(XCUIElementType\w+)\s[^>]*>/g;
+  let m;
+  while ((m = tagRe.exec(pageSourceXml || ''))) {
+    const [tag, type] = m;
+    if (NON_TAPPABLE_TYPES.has(type)) continue;
+    if (!/\baccessible="true"/.test(tag) || !/\benabled="true"/.test(tag)) continue;
+    const labelMatch = tag.match(/\blabel="([^"]+)"/);
+    if (labelMatch && labelMatch[1].trim()) labels.add(labelMatch[1].trim());
+  }
+  return [...labels];
+}
+
 async function createSession({ simulatorUdid, bundleId }) {
-  const body = await appiumFetch(`${APPIUM_URL}/session`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      capabilities: {
-        alwaysMatch: {
-          platformName: 'iOS',
-          'appium:automationName': 'XCUITest',
-          'appium:udid': simulatorUdid,
-          'appium:bundleId': bundleId,
-          'appium:noReset': true,
-          'appium:newCommandTimeout': 60
+  const body = await appiumFetch(
+    `${APPIUM_URL}/session`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        capabilities: {
+          alwaysMatch: {
+            platformName: 'iOS',
+            'appium:automationName': 'XCUITest',
+            'appium:udid': simulatorUdid,
+            'appium:bundleId': bundleId,
+            'appium:noReset': true,
+            'appium:newCommandTimeout': 120
+          }
         }
-      }
-    })
-  });
+      })
+    },
+    SESSION_TIMEOUT_MS
+  );
   const sessionId = body?.value?.sessionId || body?.sessionId;
   if (!sessionId) throw new Error('Appium não retornou sessionId');
   return sessionId;
@@ -165,7 +212,8 @@ async function runMobileHumanTest({ simulatorUdid, bundleId, runConfig = {}, orc
       });
     }
 
-    const target = labels.find((l) => CTA_PATTERN.test(l));
+    const tappableLabels = extractTappableLabels(pageSource);
+    const target = tappableLabels.find((l) => CTA_PATTERN.test(l));
     if (target) {
       try {
         await clickByLabel(sessionId, target);
@@ -207,4 +255,4 @@ async function runMobileHumanTest({ simulatorUdid, bundleId, runConfig = {}, orc
   return { available: true, ok, issues, screenshots, clickedLabel };
 }
 
-module.exports = { runMobileHumanTest, checkAppiumAvailable, extractLabels };
+module.exports = { runMobileHumanTest, checkAppiumAvailable, extractLabels, extractTappableLabels };

@@ -10,13 +10,12 @@ automação de UI nativa disponível". Era o equivalente mobile do que o ADR-022
 lado web (Playwright/navegador real complementando o teste HTTP).
 
 Levantamento de viabilidade antes de implementar: a máquina tem `xcodebuild`/`xcrun simctl`
-funcionais e Simuladores de iPhone disponíveis (confirmado rodando os comandos de verdade), mas
-**não** tem um servidor Appium nem o driver `xcuitest` instalados — e o primeiro build do
-WebDriverAgent (exigido pelo driver XCUITest) é um build nativo que tipicamente leva vários
-minutos e precisa de um app Expo já instalado num Simulador booted pra ter algo a testar. Configurar
-esse ambiente inteiro ao vivo (driver + WDA + um app Expo de demonstração) ficou fora do escopo
-prático desta sessão — mesma honestidade sobre limitação de ambiente que o resto do projeto já
-assume (ex.: helmet hallucination do ADR-026).
+funcionais e Simuladores de iPhone disponíveis (confirmado rodando os comandos de verdade). Na
+implementação inicial deste ADR, não havia Appium/driver `xcuitest` instalados, e configurar esse
+ambiente ao vivo (driver + build do WebDriverAgent + um app Expo de demonstração) parecia fora do
+escopo prático da sessão — mas o usuário pediu explicitamente pra tentar mesmo assim, e valeu a
+pena: ver "Verificação ao vivo" abaixo, que substitui o que era originalmente uma ressalva de "não
+testado" por achados reais que só apareceram testando contra o ambiente de verdade.
 
 ## Decisão
 
@@ -53,23 +52,55 @@ ganhou nenhuma dependência nova.
   vez de pular incondicionalmente; sem Appium disponível, cai exatamente no mesmo comportamento de
   skip explícito de antes (não é regressão pra quem não tem o toolchain instalado).
 
+## Verificação ao vivo (Appium + XCUITest reais, não só mock)
+
+Instalei `appium` + driver `xcuitest` numa pasta descartável fora do projeto (`npm install
+appium` sozinho audita limpo — 0 vulnerabilidades; confirma que a árvore suja era mesmo só de
+`webdriverio`/`webdriver`, não do Appium em si), subi o servidor, buildei e instalei um app Expo
+real (o SecPass, um projeto já existente no workspace) num Simulador booted de verdade, e rodei
+`runMobileHumanTest` — depois `humanStage.run()` inteiro — contra essa sessão real. Dois bugs
+reais só apareceram nessa verificação, nenhum dos dois seria pego por teste unitário/mock:
+
+1. **Timeout curto demais pra criação de sessão**: a primeira sessão contra um UDID dispara um
+   build nativo do WebDriverAgent via `xcodebuild` (confirmado no log do Appium) — meu timeout
+   único de 20s (bom pra screenshot/source/click de rotina) abortava a criação de sessão antes
+   dela terminar. Corrigido com um `SESSION_TIMEOUT_MS` separado (180s, configurável via
+   `FORJA_APPIUM_SESSION_TIMEOUT_MS`) só pra `POST /session`; comandos de rotina continuam com o
+   timeout curto.
+2. **`accessible="true"` sozinho não distingue botão de texto estático**: minha primeira correção
+   assumiu que `accessible="true"` bastava pra achar um elemento tocável. Errado — o iOS expõe o
+   MESMO texto estático duas vezes na árvore (uma com `accessible="false"`, outra com
+   `accessible="true"` — a representação de navegação do VoiceOver), então um título como "Entrar
+   no SecPass" batia no regex de CTA e o "toque" virava no-op (screenshots antes/depois
+   idênticos — só percebi comparando as imagens de verdade). Descobri também que botões
+   Pressable/TouchableOpacity do React Native viram `XCUIElementTypeOther` no iOS, não
+   `XCUIElementTypeButton` — filtrar por tipo de elemento sozinho também erraria. A correção final
+   (`extractTappableLabels`) combina os dois sinais: tipo que não é claramente não-interativo
+   (exclui StaticText/Image/TextField/SecureTextField/Application/ScrollView/Window) **e**
+   `accessible="true"` **e** `enabled="true"`. Confirmado corrigido tocando de verdade em "Criar
+   conta" (o botão real) e vendo a mudança de estado real na tela ("Informe email e senha para
+   entrar." apareceu após o toque — screenshots antes/depois diferentes desta vez).
+
+Depois da correção, rodei de novo: sessão abriu em ~5s (WDA já compilado e em cache), achou e tocou
+no botão certo, screenshots reais salvos e comparados visualmente, e — o teste mais importante —
+`humanStage.run()` completo (não só a lib isolada) processou o resultado real e pausou em
+`prodReady` com a mensagem certa. Essa é a primeira vez neste projeto que o caminho mobile do
+`humanStage.js` roda de ponta a ponta contra Appium/XCUITest de verdade, não mock.
+
 ## Consequências
 
-- Backend: 285/285. `mobileHumanTest.test.js` (7 testes) roda contra um servidor HTTP fake real que
-  fala o protocolo Appium de verdade (não mocka a função inteira) — sessão sem elementos vira
-  CRITICAL de verdade, clique em elemento encontrado por predicate string funciona de ponta a
-  ponta, screenshot é um PNG de verdade escrito em disco e verificado (`fs.existsSync` +
-  tamanho > 0), falha de sessão vira HIGH sem travar. 3 testes novos em `orchestratorStages.test.js`
-  cobrem os três desfechos do branch mobile de `humanStage.js` (indisponível/passou/achou
-  problema). 3 testes novos em `mobileSupport.test.js` cobrem `resolveBundleId` (pbxproj > app.json
-  > null).
-- **O que NÃO foi verificado ao vivo nesta sessão**: uma sessão XCUITest real contra um Simulador
-  de verdade com um app Expo de verdade instalado — exigiria instalar `appium` + driver `xcuitest`,
-  construir o WebDriverAgent (build nativo de vários minutos) e ter um app já implantado via
-  `expo run:ios`. O que FOI verificado ao vivo: que o ambiente tem Xcode/Simulador funcionais
-  (`xcrun simctl list devices` rodou de verdade), e que o código fala o protocolo HTTP do Appium
-  corretamente contra um servidor real (só não o Appium real). Documentado aqui em vez de alegar
-  cobertura que não existe — mesmo princípio do ADR-022 pro `npx playwright install chromium` como
-  passo manual de pré-requisito, não algo que o ForjaIA provisiona sozinho.
-- `FORJA_APPIUM_URL`/`FORJA_APPIUM_TIMEOUT_MS` são opt-in por env var — sem configurar nada, o
-  comportamento observável pra quem não tem Appium é idêntico ao de antes deste ADR.
+- Backend: 289/289. `mobileHumanTest.test.js` (11 testes) roda contra um servidor HTTP fake que
+  fala o protocolo Appium de verdade — inclui uma regressão dedicada pro achado do
+  `accessible="true"` (fixture com o mesmo texto duplicado que a árvore real tinha), sessão sem
+  elementos vira CRITICAL de verdade, clique funciona de ponta a ponta, screenshot é um PNG de
+  verdade escrito em disco (`fs.existsSync` + tamanho > 0), falha de sessão vira HIGH sem travar. 3
+  testes novos em `orchestratorStages.test.js` cobrem os três desfechos do branch mobile de
+  `humanStage.js`. 3 testes novos em `mobileSupport.test.js` cobrem `resolveBundleId` (pbxproj >
+  app.json > null) — inclusive contra o `.pbxproj` real do app usado na verificação ao vivo.
+- `FORJA_APPIUM_URL`/`FORJA_APPIUM_SESSION_TIMEOUT_MS`/`FORJA_APPIUM_TIMEOUT_MS` são opt-in por env
+  var — sem Appium instalado, o comportamento observável é idêntico ao skip explícito de antes
+  deste ADR.
+- O que a verificação NÃO cobriu: apps mobile fora do padrão Expo/RN comum (ex.: WebView
+  embutida, apps com Button nativo de verdade em vez de Pressable) podem expor a árvore de
+  acessibilidade de outro jeito; `extractTappableLabels` foi calibrado contra o padrão real
+  observado (RN + Pressable/TouchableOpacity), não contra todo padrão possível de app iOS.
