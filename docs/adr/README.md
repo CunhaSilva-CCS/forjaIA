@@ -53,3 +53,5 @@ comprova isso.
 - [ADR-033 — Endpoint de saúde operacional agregada](033-ops-health-endpoint.md)
 - [ADR-034 — QA parava de confiar em código correto por causa de um acoplamento com os mocks](034-qa-suite-mock-coupling.md)
 - [ADR-035 — Dogfooding automático e agendado (script + crontab do macOS)](035-scheduled-dogfooding.md)
+- [ADR-036 — QA gera a suíte de teste dinamicamente a partir do código real](036-dynamic-qa-suite-generation.md)
+- [ADR-037 — Build do sandbox travava pra sempre num projeto TypeScript sem tsconfig.json](037-dockerfile-typescript-build-fallback.md)

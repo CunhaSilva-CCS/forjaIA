@@ -6,7 +6,14 @@ const os = require('os');
 
 process.env.FORJA_DB_PATH = process.env.FORJA_DB_PATH || path.join(os.tmpdir(), `forja-dockerbuild-db-${Date.now()}.db`);
 
-const { detectStartCommand, needsCompile, needsNativeBuild, buildDockerfile } = require('../lib/dockerBuild');
+const {
+  detectStartCommand,
+  needsCompile,
+  needsDevDependencies,
+  needsNativeBuild,
+  buildDockerfile,
+  ensureTsconfig
+} = require('../lib/dockerBuild');
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'forja-dockerbuild-'));
@@ -77,6 +84,76 @@ describe('dockerBuild.needsCompile', () => {
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { start: 'node server.js' } }));
     assert.equal(needsCompile(dir, { args: ['server.js'] }), false);
   });
+
+  it('achado real (RAG travada em produção, ADR-037): false quando o start roda tsx/ts-node direto, mesmo com scripts.build presente', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ scripts: { build: 'tsc', start: 'tsx src/index.ts' } })
+    );
+    assert.equal(needsCompile(dir, { cmd: 'npm', args: ['start'] }), false);
+  });
+
+  it('false com ts-node também (mesmo raciocínio do tsx)', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ scripts: { build: 'tsc', start: 'ts-node src/index.ts' } })
+    );
+    assert.equal(needsCompile(dir, { cmd: 'npm', args: ['start'] }), false);
+  });
+});
+
+describe('dockerBuild.needsDevDependencies (ADR-037 — achado ao vivo, regressão do próprio fix de tsx)', () => {
+  it('achado real: projeto tsx precisa de devDependencies mesmo sem precisar compilar — senão o container morre com "tsx: not found"', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ scripts: { build: 'tsc', start: 'tsx src/index.ts' } })
+    );
+    assert.equal(needsCompile(dir, { cmd: 'npm', args: ['start'] }), false);
+    assert.equal(needsDevDependencies(dir, { cmd: 'npm', args: ['start'] }), true);
+  });
+
+  it('false pra um projeto JS simples sem tsx nem build', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { start: 'node server.js' } }));
+    assert.equal(needsDevDependencies(dir, { args: ['server.js'] }), false);
+  });
+
+  it('true quando precisa compilar de verdade (dist/ via node), mesma resposta de needsCompile', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'tsconfig.json'), '{}');
+    assert.equal(needsDevDependencies(dir, { args: ['dist/main.js'] }), true);
+  });
+});
+
+describe('dockerBuild.ensureTsconfig (ADR-037)', () => {
+  it('achado real: cria tsconfig.json padrão quando o Codificador não escreveu nenhum', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc', start: 'node dist/index.js' } }));
+    const created = ensureTsconfig(dir);
+    assert.equal(created, true);
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'tsconfig.json'), 'utf8'));
+    assert.equal(written.compilerOptions.module, 'commonjs');
+  });
+
+  it('usa module NodeNext quando package.json declara "type":"module"', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+    ensureTsconfig(dir);
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'tsconfig.json'), 'utf8'));
+    assert.equal(written.compilerOptions.module, 'NodeNext');
+  });
+
+  it('não sobrescreve um tsconfig.json já existente', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true } }));
+    const created = ensureTsconfig(dir);
+    assert.equal(created, false);
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'tsconfig.json'), 'utf8'));
+    assert.equal(written.compilerOptions.strict, true);
+  });
 });
 
 describe('dockerBuild.needsNativeBuild', () => {
@@ -131,6 +208,25 @@ describe('dockerBuild.buildDockerfile', () => {
     const dir = tmpDir();
     const df = buildDockerfile(dir, { cmd: 'node', args: ['server.js'] });
     assert.match(df, /RUN npm install --omit=dev/);
+  });
+
+  it('achado real (ADR-037): projeto que precisa compilar mas não tem tsconfig.json ganha um padrão em disco antes do build', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc', start: 'node dist/index.js' } }));
+    assert.equal(fs.existsSync(path.join(dir, 'tsconfig.json')), false);
+    buildDockerfile(dir, { cmd: 'node', args: ['dist/index.js'] });
+    assert.equal(fs.existsSync(path.join(dir, 'tsconfig.json')), true);
+  });
+
+  it('achado real (ADR-037): projeto tsx instala devDependencies (sem --omit=dev) mesmo sem gerar build step', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ scripts: { build: 'tsc', start: 'tsx src/index.ts' } })
+    );
+    const df = buildDockerfile(dir, { cmd: 'npm', args: ['start'] });
+    assert.match(df, /RUN npm install\n/);
+    assert.doesNotMatch(df, /npm run build \|\| /);
   });
 
   it('adiciona deps nativas de build quando o projeto usa better-sqlite3', () => {

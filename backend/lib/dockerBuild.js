@@ -41,14 +41,62 @@ function detectStartCommand(dir) {
   return null;
 }
 
+function usesTsRuntime(pkg) {
+  return /\btsx\b|\bts-node\b/.test(String(pkg?.scripts?.start || ''));
+}
+
 function needsCompile(dir, start) {
   const pkg = readPackageJson(dir) || {};
+  // Achado real (ver ADR-037): se o start já executa TypeScript direto via tsx/ts-node, o
+  // runtime não depende de dist/ nenhum — forçar um `tsc`/`npm run build` aqui é trabalho
+  // desnecessário e, pior, um projeto assim frequentemente não tem tsconfig.json de verdade
+  // (nunca precisou de um pra rodar), o que faz o build falhar por um motivo que não afeta a
+  // aplicação em nada.
+  if (usesTsRuntime(pkg)) return false;
   if (pkg.scripts?.build) return true;
   if (fs.existsSync(path.join(dir, 'tsconfig.json'))) return true;
   const entry = start?.args?.[0] || '';
   if (String(entry).startsWith('dist/') || String(entry).endsWith('.ts')) return true;
   if (String(pkg.main || '').startsWith('dist/')) return true;
   return false;
+}
+
+/** Achado real (regressão própria do fix acima, pego na MESMA verificação ao vivo): "precisa
+ * compilar" e "precisa de devDependencies instaladas" não são a mesma pergunta. Um projeto tsx/
+ * ts-node não compila nada, mas o próprio `tsx`/`ts-node` é uma devDependency — sem instalar dev
+ * deps o container sobe e morre na hora com "sh: 1: tsx: not found" (exit 127). */
+function needsDevDependencies(dir, start) {
+  return needsCompile(dir, start) || usesTsRuntime(readPackageJson(dir));
+}
+
+/** tsconfig.json padrão pra quando o projeto genuinamente precisa compilar (start roda dist/*.js
+ * via `node`, não tsx/ts-node) mas o Codificador não escreveu um — sem isso, `tsc` sem config nem
+ * arquivo de entrada não dá erro de compilação, imprime a AJUDA de linha de comando e sai com
+ * código 1 (achado real, ver ADR-037), travando o build da sandbox pra sempre sem nenhum caminho
+ * de correção automática. */
+function defaultTsconfig(pkg) {
+  const isEsm = pkg?.type === 'module';
+  return {
+    compilerOptions: {
+      target: 'ES2020',
+      module: isEsm ? 'NodeNext' : 'commonjs',
+      moduleResolution: isEsm ? 'NodeNext' : 'node',
+      outDir: 'dist',
+      esModuleInterop: true,
+      skipLibCheck: true,
+      strict: false,
+      resolveJsonModule: true
+    },
+    include: ['**/*.ts'],
+    exclude: ['node_modules', 'dist']
+  };
+}
+
+function ensureTsconfig(dir) {
+  const tsconfigPath = path.join(dir, 'tsconfig.json');
+  if (fs.existsSync(tsconfigPath)) return false;
+  fs.writeFileSync(tsconfigPath, JSON.stringify(defaultTsconfig(readPackageJson(dir)), null, 2), 'utf8');
+  return true;
 }
 
 function needsNativeBuild(dir) {
@@ -62,11 +110,13 @@ function buildDockerfile(dir, start, { containerPort = 3000, nodeEnv = 'test' } 
   const compile = needsCompile(dir, start);
   const native = needsNativeBuild(dir);
 
+  if (compile) ensureTsconfig(dir);
+
   const nativeDeps = native
     ? 'RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \\\n'
       + '  && rm -rf /var/lib/apt/lists/*\n'
     : '';
-  const install = compile ? 'RUN npm install' : 'RUN npm install --omit=dev';
+  const install = needsDevDependencies(dir, start) ? 'RUN npm install' : 'RUN npm install --omit=dev';
   const buildStep = compile ? 'RUN npm run build || (test -f tsconfig.json && npx tsc)\n' : '';
 
   return `FROM node:20-slim
@@ -125,7 +175,10 @@ module.exports = {
   readPackageJson,
   detectStartCommand,
   needsCompile,
+  needsDevDependencies,
   needsNativeBuild,
   buildDockerfile,
+  ensureTsconfig,
+  defaultTsconfig,
   execAsync
 };

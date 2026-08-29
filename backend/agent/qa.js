@@ -341,6 +341,62 @@ async function runRagTests(baseUrl, orchestrator) {
   };
 }
 
+const TEST_PLAN_CONTRACT = `Você é um engenheiro de QA sênior. Com base nos arquivos de código reais abaixo — que já foram
+escritos e serão executados contra um servidor HTTP real numa sandbox — gere um plano de teste de
+integração executável cobrindo os endpoints REALMENTE expostos por esse código. Não invente rota
+que não exista no código.
+
+Retorne APENAS JSON estrito:
+{
+  "cases": [
+    {
+      "name": "nome curto e descritivo do teste",
+      "method": "GET|POST|PUT|PATCH|DELETE",
+      "path": "/api/algo ou /api/algo/{variavelCapturada}",
+      "body": {} ou null,
+      "auth": true ou false,
+      "expectedStatus": "2xx" ou "4xx" ou "200" ou "201" ou "204" ou "401" (classe ou código exato),
+      "expect": "none" | "list" | "object-id" | "token" | "field:<nomeDoCampo>=<valorEsperado>",
+      "captureAs": "nomeDaVariavel" ou null
+    }
+  ]
+}
+
+Regras:
+- Use {nomeDaVariavel} no "path" pra reaproveitar um valor capturado num caso anterior via
+  "captureAs" (ex.: capture o id criado como "createdId" com expect "object-id", depois use
+  "/api/tasks/{createdId}" num caso posterior). Um caso "auth":true reusa automaticamente o token
+  capturado por qualquer caso com expect "token", não precisa nomear a variável.
+- "expect":"list" e "expect":"object-id" são deliberadamente tolerantes a formato de envelope —
+  NÃO exija um nome de campo específico (ex.: não assuma que a lista vem sob a chave "tasks"; pode
+  vir na raiz da resposta ou em qualquer envelope razoável). Só "field:<nome>=<valor>" e o caminho
+  do JSON dentro do "body" da requisição precisam ser específicos.
+- Cubra pelo menos um caminho de sucesso e um de falha de validação por recurso principal; se
+  houver autenticação, inclua registro/login e acesso autorizado/não autorizado a uma rota
+  protegida.
+- Gere entre 3 e 12 casos. Priorize cobrir o que existe de verdade no código a testar exaustivamente
+  um único endpoint.`;
+
+async function generateTestPlan(files, config, orchestrator) {
+  const { generateJson } = require('../lib/llm');
+  const { composeSystemPrompt } = require('../lib/seniorEngineer');
+  const codeBlob = (files || [])
+    .filter((f) => !/\.(png|jpe?g|gif|svg|ico|lock|woff2?|ttf)$/i.test(f.path || ''))
+    .map((f) => `--- ${f.path} ---\n${f.content || ''}`)
+    .join('\n\n');
+
+  const result = await generateJson({
+    system: composeSystemPrompt('qa', TEST_PLAN_CONTRACT, config),
+    user: `Arquivos gerados para este projeto:\n\n${codeBlob}`,
+    runConfig: config,
+    signal: orchestrator.getSignal()
+  });
+  if (result.tokens) {
+    orchestrator.recordTokens(result.tokens, { provider: result.provider, model: result.model });
+  }
+  return result.data;
+}
+
 function detectSuite(files) {
   const blob = files.map((f) => `${f.path}\n${f.content || ''}`).join('\n').toLowerCase();
   if (blob.includes('/api/ingest') || blob.includes('queryrag') || blob.includes('rag-profissional') || blob.includes('similaritysearch')) {
@@ -402,16 +458,32 @@ module.exports = {
         };
       }
 
-      suite = detectSuite(files);
-      if (suite === 'rag') {
-        orchestrator.log('qa', 'Executando suíte de testes RAG...', 'info');
-        report = await runRagTests(sandboxInfo.baseUrl, orchestrator);
-      } else if (suite === 'auth') {
-        orchestrator.log('qa', 'Executando suíte de testes de Autenticação/JWT...', 'info');
-        report = await runAuthTests(sandboxInfo.baseUrl, orchestrator);
+      const { runGeneratedTests, isValidCase } = require('../lib/testPlanRunner');
+      let dynamicPlan = null;
+      try {
+        dynamicPlan = await generateTestPlan(files, config, orchestrator);
+      } catch (err) {
+        orchestrator.log('qa', `Geração de plano de teste dinâmico falhou (${err.message}); usando suíte fixa de fallback.`, 'warning');
+      }
+      const validCases = Array.isArray(dynamicPlan?.cases) ? dynamicPlan.cases.filter(isValidCase) : [];
+
+      if (validCases.length >= 2) {
+        orchestrator.log('qa', `Executando suíte de testes gerada dinamicamente a partir do código real (${validCases.length} casos)...`, 'info');
+        report = await runGeneratedTests({ cases: validCases }, sandboxInfo.baseUrl, orchestrator);
+        suite = 'dynamic';
       } else {
-        orchestrator.log('qa', 'Executando suíte de testes CRUD de Tarefas...', 'info');
-        report = await runCrudTests(sandboxInfo.baseUrl, orchestrator);
+        suite = detectSuite(files);
+        orchestrator.log('qa', 'Plano dinâmico vazio/insuficiente; usando suíte fixa de fallback.', 'warning');
+        if (suite === 'rag') {
+          orchestrator.log('qa', 'Executando suíte de testes RAG...', 'info');
+          report = await runRagTests(sandboxInfo.baseUrl, orchestrator);
+        } else if (suite === 'auth') {
+          orchestrator.log('qa', 'Executando suíte de testes de Autenticação/JWT...', 'info');
+          report = await runAuthTests(sandboxInfo.baseUrl, orchestrator);
+        } else {
+          orchestrator.log('qa', 'Executando suíte de testes CRUD de Tarefas...', 'info');
+          report = await runCrudTests(sandboxInfo.baseUrl, orchestrator);
+        }
       }
 
       await sandboxRunner.stop(orchestrator);
@@ -461,5 +533,5 @@ Retorne APENAS JSON:
 
     return report;
   },
-  __test__: { runCrudTests, runAuthTests, runRagTests, detectSuite }
+  __test__: { runCrudTests, runAuthTests, runRagTests, detectSuite, generateTestPlan }
 };
