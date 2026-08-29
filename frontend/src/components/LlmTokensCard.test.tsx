@@ -95,4 +95,31 @@ describe('LlmTokensCard', () => {
     await user.click(screen.getByRole('button', { name: 'resetar' }));
     expect(clearProviderCooldown).toHaveBeenCalledWith('claude');
   });
+
+  it('achado real (ADR-024): mostra o gasto estimado da run, com o teto quando configurado', () => {
+    render(
+      <LlmTokensCard
+        s={makeState({
+          tokenStats: {
+            prompt: 1000,
+            completion: 500,
+            total: 1500,
+            calls: 2,
+            peakPrompt: 800,
+            peakCompletion: 300,
+            peakTotal: 1100,
+            estimatedCostUsd: 2.5,
+            last: null
+          },
+          budgetUsd: '10'
+        })}
+      />
+    );
+    expect(screen.getByText('Gasto estimado nesta run: $2.50 de $10.00')).toBeInTheDocument();
+  });
+
+  it('não mostra a linha de gasto estimado quando o custo é zero', () => {
+    render(<LlmTokensCard s={makeState()} />);
+    expect(screen.queryByText(/Gasto estimado nesta run/)).not.toBeInTheDocument();
+  });
 });

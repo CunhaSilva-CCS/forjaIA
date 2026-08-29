@@ -461,6 +461,10 @@ app.get('/api/workspace', (req, res) => {
 
 app.post('/api/agent/run', async (req, res) => {
   try {
+    const { canStartRun } = require('./lib/rbac');
+    if (!canStartRun(req.member)) {
+      return res.status(403).json({ error: 'Papel "viewer" não pode iniciar uma run.' });
+    }
     const body = parseOrThrow(runRequestSchema, req.body);
     const prefs = preferences.get();
     const runConfig = {
@@ -516,6 +520,10 @@ app.post('/api/agent/run', async (req, res) => {
 
 app.post('/api/agent/validate', async (req, res) => {
   try {
+    const { canStartRun } = require('./lib/rbac');
+    if (!canStartRun(req.member)) {
+      return res.status(403).json({ error: 'Papel "viewer" não pode iniciar uma validação.' });
+    }
     const body = parseOrThrow(validateRequestSchema, req.body || {});
     const prefs = preferences.get();
     const runConfig = {
@@ -636,6 +644,13 @@ app.post('/api/agent/approve', async (req, res) => {
 
 app.post('/api/agent/cancel', async (req, res) => {
   try {
+    // Achado real (pente fino): esta rota não tinha NENHUMA checagem de papel — qualquer membro
+    // autenticado podia cancelar a run de qualquer outra pessoa, incluindo um deploy de produção
+    // em andamento.
+    const { canCancelRun } = require('./lib/rbac');
+    if (!canCancelRun(req.member)) {
+      return res.status(403).json({ error: 'Papel "viewer" não pode cancelar uma execução.' });
+    }
     const result = await orchestrator.cancel();
     res.json(result);
   } catch (err) {
@@ -645,6 +660,10 @@ app.post('/api/agent/cancel', async (req, res) => {
 
 app.post('/api/agent/user-report', async (req, res) => {
   try {
+    const { canReportIssue } = require('./lib/rbac');
+    if (!canReportIssue(req.member)) {
+      return res.status(403).json({ error: 'Papel "viewer" não pode enviar relato ao Corretor.' });
+    }
     const body = parseOrThrow(userReportSchema, req.body || {});
     const result = orchestrator.queueUserReport(body.message);
     res.json(result);

@@ -86,6 +86,22 @@ export function OrderPanel({ s }: { s: AppState }) {
         />
       </div>
 
+      <div className="field">
+        <label htmlFor="budget-usd">Orçamento (USD, opcional)</label>
+        <input
+          id="budget-usd"
+          type="number"
+          min="0"
+          step="0.5"
+          inputMode="decimal"
+          value={s.budgetUsd}
+          onChange={(e) => s.setBudgetUsd(e.target.value)}
+          disabled={s.isExecuting}
+          placeholder="sem teto"
+        />
+        <p className="field-hint">Pausa e pede aprovação se o gasto ESTIMADO passar disso.</p>
+      </div>
+
       <div className="actions-row">
         {s.taskStatus === 'awaiting_approval' ? (
           <button className="btn-primary" onClick={s.handleApprove} disabled={s.isExecuting} style={{ flex: 1 }}>

@@ -17,6 +17,8 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     openFolderBrowser: vi.fn(),
     environment: 'local',
     setEnvironment: vi.fn(),
+    budgetUsd: '',
+    setBudgetUsd: vi.fn(),
     taskStatus: null,
     approveButtonLabel: 'Aprovar',
     handleApprove: vi.fn(),
@@ -73,5 +75,19 @@ describe('OrderPanel', () => {
     await user.click(screen.getByLabelText('Projeto'));
     await user.click(screen.getByRole('option', { name: /meu-app/ }));
     expect(selectProject).toHaveBeenCalledWith('p1');
+  });
+
+  it('achado real (ADR-024): campo de orçamento chama setBudgetUsd ao digitar', async () => {
+    const setBudgetUsd = vi.fn();
+    const user = userEvent.setup();
+    render(<OrderPanel s={makeState({ setBudgetUsd })} />);
+
+    await user.type(screen.getByLabelText('Orçamento (USD, opcional)'), '5');
+    expect(setBudgetUsd).toHaveBeenCalledWith('5');
+  });
+
+  it('campo de orçamento fica vazio (sem teto) por padrão, sem quebrar', () => {
+    render(<OrderPanel s={makeState()} />);
+    expect(screen.getByLabelText('Orçamento (USD, opcional)')).toHaveValue(null);
   });
 });

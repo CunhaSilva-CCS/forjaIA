@@ -25,3 +25,5 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-021 — Auditoria independente (Semgrep + npm audit), separada do pipeline](021-independent-audit.md)
 - [ADR-022 — Teste humano com navegador real (Playwright), fechando o gap do ADR-014](022-real-browser-human-test.md)
 - [ADR-023 — Aba "Auditoria" na UI, fechando o loop do ADR-021](023-audit-tab-ui.md)
+- [ADR-024 — Teto de orçamento estimado por run, reusando o gate de aprovação existente](024-run-budget-cap.md)
+- [ADR-025 — Papel "viewer" + fecha o RBAC não-enforced em run/cancel/relato](025-rbac-viewer-role.md)

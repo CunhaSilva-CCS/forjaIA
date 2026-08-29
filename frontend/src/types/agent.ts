@@ -216,6 +216,7 @@ export interface TokenStats {
   peakPrompt?: number;
   peakCompletion?: number;
   peakTotal?: number;
+  estimatedCostUsd?: number;
   last?: {
     prompt: number;
     completion: number;

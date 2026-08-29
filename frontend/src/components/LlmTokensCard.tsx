@@ -162,6 +162,12 @@ export function LlmTokensCard({ s }: { s: AppState }) {
           {s.tokenStats.calls || 0} calls · ctx {formatTokens(lastTotal)}
         </span>
       </div>
+      {(s.tokenStats.estimatedCostUsd || 0) > 0 && (
+        <p className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+          Gasto estimado nesta run: ${s.tokenStats.estimatedCostUsd!.toFixed(2)}
+          {s.budgetUsd?.trim() ? ` de $${Number(s.budgetUsd).toFixed(2)}` : ''}
+        </p>
+      )}
     </div>
   );
 }

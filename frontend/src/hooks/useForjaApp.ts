@@ -37,6 +37,7 @@ const emptyTokenStats = (): TokenStats => ({
   peakPrompt: 0,
   peakCompletion: 0,
   peakTotal: 0,
+  estimatedCostUsd: 0,
   last: null
 });
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -141,6 +142,9 @@ export function useForjaApp() {
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('forge');
   const [userErrorReport, setUserErrorReport] = useState('');
   const [environment, setEnvironment] = useState<DeployEnvironment>('local');
+  // String (não number) pra permitir campo vazio = sem teto, sem lutar com o estado inicial de
+  // um <input type="number"> (ver ADR-024).
+  const [budgetUsd, setBudgetUsd] = useState('');
   const [teamMe, setTeamMe] = useState<{ id: string; name: string; role: string; isAdmin?: boolean } | null>(
     null
   );
@@ -612,6 +616,7 @@ export function useForjaApp() {
     targetPath: activeRunTargetPath || targetPath,
     projectId: selectedProjectId,
     environment,
+    budgetUsd: budgetUsd.trim() ? Number(budgetUsd) : undefined,
     mode: pipelineMode
   });
 
@@ -893,6 +898,8 @@ export function useForjaApp() {
     pipelineMode,
     environment,
     setEnvironment,
+    budgetUsd,
+    setBudgetUsd,
     teamMe,
     teamInfo,
     teamBoard,

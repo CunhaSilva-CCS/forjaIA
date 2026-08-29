@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const config = require('./config');
 
-/** Papéis da célula de produção */
-const ROLES = ['admin', 'lead', 'qa', 'sre', 'member'];
+/** Papéis da célula de produção. 'viewer' é só-leitura (ver ADR-025) — pode olhar runs/histórico/
+ * relatórios, mas não inicia, aprova, cancela nem relata problema em nenhuma run. */
+const ROLES = ['admin', 'lead', 'qa', 'sre', 'member', 'viewer'];
 
 /** Quem pode aprovar cada etapa do pipeline */
 const STAGE_ROLES = {
@@ -55,8 +56,27 @@ function assertCanApprove(member, stage) {
   throw err;
 }
 
+// Achado real (pente fino): antes só checava Boolean(member) — qualquer papel, incluindo um
+// futuro 'viewer' só-leitura, podia disparar run (gasta LLM de verdade). Único uso real do papel
+// 'viewer' é justamente NÃO poder fazer isso.
 function canStartRun(member) {
-  return Boolean(member);
+  if (!member) return false;
+  return member.role !== 'viewer';
+}
+
+// Achado real (pente fino): /api/agent/cancel não tinha NENHUMA checagem de papel — qualquer
+// membro autenticado podia cancelar a run de qualquer outra pessoa, incluindo um deploy de
+// produção em andamento. Mesmo critério de canStartRun: qualquer papel exceto 'viewer'.
+function canCancelRun(member) {
+  if (!member) return false;
+  return member.role !== 'viewer';
+}
+
+// Relatar um problema pro Corretor (queueUserReport) enfileira uma correção real — mesmo
+// critério: 'viewer' não participa de nada que gasta LLM ou muda código.
+function canReportIssue(member) {
+  if (!member) return false;
+  return member.role !== 'viewer';
 }
 
 function canManageServices(member) {
@@ -74,5 +94,7 @@ module.exports = {
   canApproveStage,
   assertCanApprove,
   canStartRun,
+  canCancelRun,
+  canReportIssue,
   canManageServices
 };

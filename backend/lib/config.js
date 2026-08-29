@@ -87,6 +87,10 @@ const config = {
   // Auditoria independente agendada (Semgrep + npm audit contra o próprio ForjaIA, ver ADR-021) —
   // 0 = desligado (default). Deliberadamente opt-in: roda ferramenta externa pesada sem pedir.
   auditScheduleHours: Number(process.env.FORJA_AUDIT_SCHEDULE_HOURS || 0),
+  // Teto de gasto ESTIMADO por run (ver ADR-024) — 0 = desligado (default). Estimativa via
+  // lib/llmPricing.js, não fatura real do provedor (nenhum provedor expõe isso por API, mesma
+  // limitação documentada no ADR-017). Pode ser sobrescrito por run via runConfig.budgetUsd.
+  runBudgetUsd: Number(process.env.FORJA_RUN_BUDGET_USD || 0),
   isProduction: (process.env.NODE_ENV || 'development') === 'production',
   frontendDist: path.join(rootDir, '../frontend/dist')
 };

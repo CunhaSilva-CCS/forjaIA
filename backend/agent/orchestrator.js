@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const { runs } = require('../lib/db');
+const config = require('../lib/config');
 
 const STAGE_LABELS = {
   coder: 'Codificar',
@@ -42,6 +43,7 @@ function emptyTokenStats() {
     peakPrompt: 0,
     peakCompletion: 0,
     peakTotal: 0,
+    estimatedCostUsd: 0,
     last: null
   };
 }
@@ -150,6 +152,17 @@ class Orchestrator extends EventEmitter {
       err.cancelled = true;
       throw err;
     }
+    // Chamado no início de toda etapa (mesmo checkpoint cooperativo do cancelamento acima) — é o
+    // ponto confiável pra interromper por orçamento excedido (ver ADR-024/recordTokens). Sem
+    // `.cancelled`, então cai no MESMO caminho de "etapa interrompida, aprove pra tentar de novo"
+    // de qualquer outro erro de etapa — aprovar de novo é o próprio ato de autorizar gastar mais.
+    if (this.currentTask?.budgetExceeded) {
+      const budgetUsd = Number(this.savedConfig?.budgetUsd ?? config.runBudgetUsd ?? 0);
+      const spent = this.currentTask.tokenStats?.estimatedCostUsd || 0;
+      throw new Error(
+        `Orçamento estimado de $${budgetUsd.toFixed(2)} excedido (gasto estimado: $${spent.toFixed(2)})`
+      );
+    }
   }
 
   broadcast(event, data) {
@@ -186,6 +199,8 @@ class Orchestrator extends EventEmitter {
     const prompt = Number(tokens.prompt || 0);
     const completion = Number(tokens.completion || 0);
     const total = Number(tokens.total || prompt + completion);
+    const provider = meta.provider || tokens.provider || null;
+    const model = meta.model || tokens.model || null;
 
     stats.prompt += prompt;
     stats.completion += completion;
@@ -194,18 +209,33 @@ class Orchestrator extends EventEmitter {
     stats.peakPrompt = Math.max(stats.peakPrompt || 0, prompt);
     stats.peakCompletion = Math.max(stats.peakCompletion || 0, completion);
     stats.peakTotal = Math.max(stats.peakTotal || 0, total);
-    stats.last = {
-      prompt,
-      completion,
-      total,
-      provider: meta.provider || tokens.provider || null,
-      model: meta.model || tokens.model || null,
-      at: new Date().toISOString()
-    };
+    stats.last = { prompt, completion, total, provider, model, at: new Date().toISOString() };
+
+    // Teto de orçamento por run (ver ADR-024) — estimativa, não fatura real (nenhum provedor
+    // expõe isso por API, ver ADR-017). Provedor desconhecido devolve `null` (não finge custo
+    // zero nem soma um número inventado ao total).
+    const { estimateCostUsd } = require('../lib/llmPricing');
+    const delta = estimateCostUsd({ provider, model, promptTokens: prompt, completionTokens: completion });
+    if (delta != null) stats.estimatedCostUsd = (stats.estimatedCostUsd || 0) + delta;
 
     this.currentTask.tokenStats = stats;
     runs.update(this.currentTask.id, { tokenStats: stats });
     this.broadcast('tokens-updated', stats);
+
+    const budgetUsd = Number(this.savedConfig?.budgetUsd ?? config.runBudgetUsd ?? 0);
+    if (budgetUsd > 0 && stats.estimatedCostUsd > budgetUsd) {
+      // Não lança direto daqui — quem chama recordTokens (thinkAsSenior, etc.) às vezes engole
+      // exceção própria num try/catch que trataria isso como "LLM indisponível", nunca chegando
+      // no pauseForApproval do orchestrator. Marca um flag e deixa o throwIfAborted() — chamado
+      // no início de toda etapa, o mesmo checkpoint cooperativo já usado pra cancelamento — ser o
+      // ponto único e confiável que efetivamente interrompe a run.
+      this.currentTask.budgetExceeded = true;
+      this.log(
+        'orchestrator',
+        `Orçamento estimado de $${budgetUsd.toFixed(2)} excedido nesta run (gasto estimado: $${stats.estimatedCostUsd.toFixed(2)}). Pausando na próxima etapa.`,
+        'warning'
+      );
+    }
   }
 
   persistTask(patch = {}) {
@@ -415,6 +445,11 @@ class Orchestrator extends EventEmitter {
 
     this.isExecuting = true;
     this.createAbortController();
+    // Aprovar É o ato de autorizar continuar gastando (ver ADR-024) — não exige que o humano
+    // levante o teto antes; se o gasto real continuar acima do orçamento, a próxima chamada de
+    // LLM marca o flag de novo e a run pausa de novo na etapa seguinte, o mesmo padrão de
+    // "aprove pra tentar de novo" de qualquer outro erro de etapa.
+    if (this.currentTask) this.currentTask.budgetExceeded = false;
 
     const cfg = require('../lib/config');
     let incoming = { ...customConfig };
