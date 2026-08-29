@@ -1054,10 +1054,15 @@ a:focus-visible {
   font-size: 0.82rem;
 }
 
+.sev.critical {
+  color: var(--danger);
+  font-weight: 700;
+}
 .sev.high {
   color: var(--danger);
 }
-.sev.medium {
+.sev.medium,
+.sev.moderate {
   color: var(--warning);
 }
 .sev.low {

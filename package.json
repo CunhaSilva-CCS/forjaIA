@@ -18,7 +18,9 @@
     "test": "npm test --prefix backend && npm test --prefix frontend",
     "test:backend": "npm test --prefix backend",
     "test:frontend": "npm test --prefix frontend",
-    "build": "npm run build --prefix frontend"
+    "build": "npm run build --prefix frontend",
+    "audit:self": "node scripts/independentAudit.js --target self",
+    "audit:project": "node scripts/independentAudit.js --target project"
   },
   "keywords": [
     "forjaia",

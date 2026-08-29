@@ -314,6 +314,46 @@ describe('human heuristic journey', () => {
   });
 });
 
+describe('human execute — verificação real de navegador (Playwright, ADR-022, achado real)', () => {
+  it('reprova mesmo com TODOS os passos HTTP ok, quando a página renderiza em branco num navegador de verdade', async () => {
+    const server = require('http').createServer((req, res) => {
+      const url = req.url || '/';
+      if (url === '/api/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      // A raiz responde 200 (o teste HTTP por status passaria), mas o <body> fica vazio — só um
+      // navegador real detecta isso; um teste só por fetch/status nunca pegaria.
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<html><head><title>Vazio</title></head><body></body></html>');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+
+    delete require.cache[require.resolve('../lib/llm')];
+    delete require.cache[require.resolve('../lib/seniorEngineer')];
+    delete require.cache[require.resolve('../agent/human')];
+    const llm = require('../lib/llm');
+    const original = llm.generateJson;
+    llm.generateJson = async () => {
+      throw new Error('forced heuristic'); // isola do plano/revisão do LLM — só quer o browser check
+    };
+    const human = require('../agent/human');
+    const orch = { log() {}, throwIfAborted() {}, getSignal: () => undefined, recordTokens() {} };
+
+    try {
+      const report = await human.execute(`http://127.0.0.1:${port}`, [], { llmProvider: 'ollama', useOllama: true }, orch);
+      assert.equal(report.passed, false, 'página em branco deveria reprovar mesmo com HTTP 200 em tudo');
+      assert.ok(report.browserCheck.available, 'playwright deveria estar disponível nesta máquina de teste');
+      assert.equal(report.browserCheck.ok, false);
+      assert.ok(report.issues.some((i) => i.id === 'UX-BLANK-PAGE'));
+    } finally {
+      llm.generateJson = original;
+      server.close();
+    }
+  });
+});
+
 describe('human gate de aprovação — verdict do senior review (achado real)', () => {
   it('reprova mesmo com o fluxo limpo quando o verdict vem em formatação diferente ("Reprovado", maiúsculo)', async () => {
     const server = require('http').createServer((req, res) => {

@@ -70,6 +70,10 @@ const wss = new WebSocket.Server({
 
 const orchestrator = new Orchestrator(wss);
 
+// Agendamento opcional da auditoria independente (ver ADR-021) — não faz nada se
+// FORJA_AUDIT_SCHEDULE_HOURS não estiver configurado (desligado por padrão).
+require('./lib/auditScheduler').startAuditScheduler(orchestrator);
+
 function handleError(res, err) {
   const status = err.status || 500;
   res.status(status).json({ error: err.message || 'Erro interno' });
@@ -132,6 +136,50 @@ app.post('/api/llm/cooldown/:provider/clear', (req, res) => {
   const { providerCooldown } = require('./lib/llmUsage');
   providerCooldown.clear(req.params.provider);
   res.json({ success: true });
+});
+
+/**
+ * Auditoria independente (Semgrep + npm audit, ver ADR-021) — deliberadamente FORA do pipeline de
+ * agentes: dispara sob demanda, roda em background (pode levar dezenas de segundos), nunca
+ * bloqueia uma run de forja/validação. 'project' valida o path com resolveWithinWorkspace, o
+ * mesmo guard usado por toda rota que toca o filesystem de um projeto.
+ */
+app.post('/api/audit/run', (req, res) => {
+  const { auditRuns, resolveSelfTargetDir, runIndependentAudit } = require('./lib/independentAudit');
+  const target = req.body?.target === 'project' ? 'project' : 'self';
+  let targetDir;
+  try {
+    targetDir = target === 'project' ? resolveWithinWorkspace(req.body?.projectPath, { mustExist: true }) : resolveSelfTargetDir();
+  } catch (err) {
+    return handleError(res, err);
+  }
+
+  const row = auditRuns.create({ target, targetPath: targetDir });
+  orchestrator.broadcast?.('audit-started', { id: row.id, target, targetPath: targetDir });
+
+  runIndependentAudit({ target, targetDir })
+    .then((result) => {
+      auditRuns.complete(row.id, result);
+      orchestrator.broadcast?.('audit-finished', { id: row.id, summary: result.summary });
+    })
+    .catch((err) => {
+      auditRuns.fail(row.id, err);
+      orchestrator.broadcast?.('audit-finished', { id: row.id, error: err.message });
+    });
+
+  res.json({ id: row.id, target, targetPath: targetDir, status: 'running' });
+});
+
+app.get('/api/audit/runs', (req, res) => {
+  const { auditRuns } = require('./lib/independentAudit');
+  res.json({ runs: auditRuns.list(Number(req.query.limit) || 30) });
+});
+
+app.get('/api/audit/runs/:id', (req, res) => {
+  const { auditRuns } = require('./lib/independentAudit');
+  const run = auditRuns.get(req.params.id);
+  if (!run) return res.status(404).json({ error: 'Auditoria não encontrada' });
+  res.json(run);
 });
 
 app.get('/api/preferences', (req, res) => {

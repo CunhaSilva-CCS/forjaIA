@@ -1,5 +1,5 @@
 import { API_BASE, getStoredToken } from '../config';
-import type { ADR, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
+import type { ADR, AuditRun, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
 
 interface RunQueuedResponse {
   queued?: boolean;
@@ -146,6 +146,15 @@ export const api = {
         avgTestPassRate: number | null;
         humanPassedRate: number | null;
       }>('/api/runs/stats/reliability')
+  },
+  audit: {
+    run: (target: 'self' | 'project', projectPath?: string) =>
+      request<{ id: string; target: string; targetPath: string; status: string }>('/api/audit/run', {
+        method: 'POST',
+        body: JSON.stringify({ target, projectPath })
+      }),
+    list: () => request<{ runs: AuditRun[] }>('/api/audit/runs'),
+    get: (id: string) => request<AuditRun>(`/api/audit/runs/${id}`)
   },
   browse: (path: string) =>
     request<{

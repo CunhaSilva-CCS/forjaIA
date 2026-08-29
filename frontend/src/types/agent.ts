@@ -156,6 +156,28 @@ export interface RunSummary {
   diagnosis?: Diagnosis | null;
 }
 
+export interface AuditFinding {
+  id: string;
+  severity: string;
+  title: string;
+  file?: string;
+  line?: number | null;
+  description?: string;
+}
+
+export interface AuditRun {
+  id: string;
+  target: 'self' | 'project';
+  targetPath: string | null;
+  status: 'running' | 'completed' | 'failed';
+  findings: AuditFinding[];
+  tools: Record<string, { available: boolean; skippedReason?: string; error?: string }>;
+  summary: string | null;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
 export interface TeamMember {
   id: string;
   name: string;
@@ -229,4 +251,5 @@ export type WorkspaceTab =
   | 'adrs'
   | 'history'
   | 'projects'
-  | 'team';
+  | 'team'
+  | 'audit';

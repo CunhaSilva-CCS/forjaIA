@@ -9,6 +9,7 @@ import type {
   ADR,
   AgentName,
   AgentState,
+  AuditRun,
   ChaosEvent,
   Diagnosis,
   FileData,
@@ -115,6 +116,9 @@ export function useForjaApp() {
     cooldowns: Array<{ provider: string; until: string; reason: string }>;
   } | null>(null);
   const [llmUsageLoading, setLlmUsageLoading] = useState(false);
+  const [auditRuns, setAuditRuns] = useState<AuditRun[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditTriggering, setAuditTriggering] = useState(false);
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [dockerActive, setDockerActive] = useState(false);
   const [cursorOnline, setCursorOnline] = useState(false);
@@ -467,6 +471,16 @@ export function useForjaApp() {
           api.runs.list().then(setRuns).catch(() => undefined);
           break;
         }
+        case 'audit-started':
+        case 'audit-finished': {
+          // Auditoria independente (ver ADR-021) roda fora do pipeline de agentes — não tem
+          // relação com currentTask/isExecuting; só mantém a lista da aba Auditoria ao vivo.
+          api.audit
+            .list()
+            .then(({ runs }) => setAuditRuns(runs))
+            .catch(() => undefined);
+          break;
+        }
       }
     },
     [applyTask, showToast]
@@ -552,6 +566,37 @@ export function useForjaApp() {
       }
     },
     [refreshLlmUsage]
+  );
+
+  const refreshAuditRuns = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const { runs } = await api.audit.list();
+      setAuditRuns(runs);
+    } catch {
+      // silencioso — a aba mostra o último valor conhecido
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAuditRuns();
+  }, [refreshAuditRuns]);
+
+  const triggerAudit = useCallback(
+    async (target: 'self' | 'project', projectPath?: string) => {
+      setAuditTriggering(true);
+      try {
+        await api.audit.run(target, projectPath);
+        await refreshAuditRuns();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Falha ao disparar auditoria');
+      } finally {
+        setAuditTriggering(false);
+      }
+    },
+    [refreshAuditRuns]
   );
 
   // removed auto-browse effect that looped on currentBrowserPath
@@ -883,6 +928,11 @@ export function useForjaApp() {
     llmUsageLoading,
     refreshLlmUsage,
     clearProviderCooldown,
+    auditRuns,
+    auditLoading,
+    auditTriggering,
+    refreshAuditRuns,
+    triggerAudit,
     ollamaOnline,
     cursorOnline,
     hasGeminiKey,

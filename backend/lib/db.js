@@ -101,6 +101,9 @@ function migrate(database) {
   const { ensureLlmUsageTables } = require('./llmUsage');
   ensureLlmUsageTables(database);
 
+  const { ensureAuditTables } = require('./independentAudit');
+  ensureAuditTables(database);
+
   const pref = database.prepare('SELECT id FROM preferences WHERE id = 1').get();
   if (!pref) {
     const legacyPath = path.join(__dirname, '../db/preferences.json');

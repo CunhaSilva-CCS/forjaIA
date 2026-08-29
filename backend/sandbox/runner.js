@@ -369,7 +369,12 @@ class SandboxRunner {
         // Só PATH do processo do ForjaIA (pra achar node/npm) + o .env já resolvido pro
         // projeto sandboxed — nunca ...process.env inteiro, que vazaria os segredos do
         // próprio servidor ForjaIA (tokens de API, chaves de LLM) pro processo do projeto.
-        this.childProcess = spawn(cmd.cmd, cmd.args, {
+        // Auditado (ver ADR-021/pente fino ADR-019): spawn com args em ARRAY, não string+shell —
+        // mesmo risco arquitetural aceito de deployRuntime.js (startChildProcess): este é o
+        // fallback sem Docker (startChildProcess só roda quando o container falha e
+        // config.requireDocker é false), onde já se aceita executar o start script do projeto
+        // gerado direto no host.
+        this.childProcess = spawn(cmd.cmd, cmd.args, { // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
           cwd: this.sandboxPath,
           env: {
             PATH: process.env.PATH,

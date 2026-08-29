@@ -90,7 +90,12 @@ CMD ${cmdJson}
  */
 function execAsync(cmd, { cwd, ignoreOutput = false } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, { cwd, shell: true });
+    // Auditado (ver ADR-021/pente fino ADR-019): este É o ponto que roda comando com shell de
+    // verdade — cada chamador foi revisado individualmente (mobileDeploy.js sanitiza nome de
+    // workspace/scheme antes de interpolar; windowsDeploy.js só usa constante + id numérico;
+    // deployRuntime.js coage hostPort pra Number antes de interpolar). QUALQUER chamador NOVO
+    // de execAsync precisa da mesma revisão antes de interpolar dado externo na string de `cmd`.
+    const child = spawn(cmd, { cwd, shell: true }); // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     let stdout = '';
     let stderr = '';
     if (!ignoreOutput) {

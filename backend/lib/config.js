@@ -84,6 +84,9 @@ const config = {
   stagingHostPort: Number(process.env.FORJA_STAGING_PORT || 5200),
   requireGitPr: parseBool(process.env.FORJA_REQUIRE_GIT_PR, false),
   teamJson: process.env.FORJA_TEAM_JSON || '',
+  // Auditoria independente agendada (Semgrep + npm audit contra o próprio ForjaIA, ver ADR-021) —
+  // 0 = desligado (default). Deliberadamente opt-in: roda ferramenta externa pesada sem pedir.
+  auditScheduleHours: Number(process.env.FORJA_AUDIT_SCHEDULE_HOURS || 0),
   isProduction: (process.env.NODE_ENV || 'development') === 'production',
   frontendDist: path.join(rootDir, '../frontend/dist')
 };

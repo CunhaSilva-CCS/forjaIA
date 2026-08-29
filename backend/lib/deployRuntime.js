@@ -151,9 +151,12 @@ async function stopDeploy(orchestrator) {
   active.type = null;
 }
 
+// Auditado (ver ADR-021/pente fino ADR-019): `hostPort` sempre chega aqui já coagido por
+// `Number(...)` em config.js (deployHostPort/stagingHostPort, de env var) — nunca uma string
+// bruta com metacaractere de shell, mesmo que um operador tente passar algo malicioso no env.
 function assertHostPortFree(hostPort) {
   try {
-    const out = execSync(`lsof -nP -iTCP:${hostPort} -sTCP:LISTEN -t`, {
+    const out = execSync(`lsof -nP -iTCP:${hostPort} -sTCP:LISTEN -t`, { // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore']
     }).trim();
@@ -325,7 +328,12 @@ async function startDeploy({ deployDir, hostPort, env = {}, orchestrator }) {
     // nesse caminho sem Docker morria junto com um restart do próprio ForjaIA.
     const logPath = path.join(os.tmpdir(), `forja-deploy-run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`);
     const logFd = fs.openSync(logPath, 'a');
-    active.childProcess = spawn(start.cmd, start.args, {
+    // Auditado (ver ADR-021/pente fino ADR-019): spawn com args em ARRAY (não string+shell:true)
+    // — metacaractere de shell em start.cmd/start.args não é interpretado especialmente. O risco
+    // real aqui não é injeção de shell; é que este caminho só ativa com FORJA_REQUIRE_DOCKER=false
+    // (fallback sem Docker), quando já se aceita rodar o próprio `npm start` do projeto gerado
+    // direto no host — risco arquitetural já documentado, não uma vulnerabilidade nova.
+    active.childProcess = spawn(start.cmd, start.args, { // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
       cwd: deployDir,
       detached: true,
       stdio: ['ignore', logFd, logFd],

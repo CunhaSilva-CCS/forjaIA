@@ -22,3 +22,6 @@ Registro das decisões arquiteturais relevantes do ForjaIA — o quê foi decidi
 - [ADR-018 — Deploy mobile também para macOS (Catalyst) e Windows (GitHub Actions)](018-mac-and-windows-deploy.md)
 - [ADR-019 — Pente fino: 2 críticos + 4 altos corrigidos numa auditoria dedicada](019-fine-tooth-comb-review.md)
 - [ADR-020 — Restante do pente fino: os ~13 achados médios/baixos do ADR-019](020-remaining-findings-cleanup.md)
+- [ADR-021 — Auditoria independente (Semgrep + npm audit), separada do pipeline](021-independent-audit.md)
+- [ADR-022 — Teste humano com navegador real (Playwright), fechando o gap do ADR-014](022-real-browser-human-test.md)
+- [ADR-023 — Aba "Auditoria" na UI, fechando o loop do ADR-021](023-audit-tab-ui.md)

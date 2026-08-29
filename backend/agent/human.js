@@ -606,6 +606,19 @@ module.exports = {
       file: undefined
     }));
 
+    // Teste HTTP acima confirma que as ROTAS respondem certo — não confirma que a PÁGINA
+    // renderiza (uma SPA pode devolver 200 em tudo e ainda assim ficar em branco por erro de
+    // bundle). Verificação real de navegador (ver ADR-022) fecha esse gap documentado desde o
+    // ADR-014; degrada graciosamente se o Playwright não estiver instalado.
+    const { runBrowserCheck } = require('../lib/browserCheck');
+    const browserCheck = await runBrowserCheck({
+      deployUrl,
+      buttons: surface.html?.buttons || [],
+      runConfig,
+      orchestrator
+    });
+    issues.push(...browserCheck.issues);
+
     const senior = await thinkAsSenior({
       role: 'human',
       taskContract: `Você acabou de testar IN LOCO como humano. Avalie se o fluxo e o funcionamento do projeto estão ok.
@@ -636,7 +649,15 @@ Retorne APENAS JSON:
           failure: result.failure || null,
           preview: String(result.bodyPreview || '').slice(0, 500)
         })),
-        transcript
+        transcript,
+        browserCheck: browserCheck.available
+          ? {
+              ok: browserCheck.ok,
+              title: browserCheck.title,
+              clickedButton: browserCheck.clickedButton,
+              consoleErrorCount: browserCheck.consoleErrors.length
+            }
+          : { available: false, skippedReason: browserCheck.skippedReason }
       },
       runConfig,
       orchestrator
@@ -691,6 +712,14 @@ Retorne APENAS JSON:
       deployUrl,
       issues,
       surface,
+      browserCheck: {
+        available: browserCheck.available,
+        ok: browserCheck.ok,
+        title: browserCheck.title || null,
+        clickedButton: browserCheck.clickedButton || null,
+        screenshots: browserCheck.screenshots || [],
+        skippedReason: browserCheck.skippedReason || null
+      },
       session: {
         persona: plan.persona,
         goal: plan.goal,
