@@ -1,10 +1,12 @@
 /** Descreve onde o deploy foi feito, cobrindo tanto o web/simulador único de antes quanto os
- * múltiplos alvos mobile (ADR-018: Simulador + Mac Catalyst + Windows via GitHub Actions). */
+ * múltiplos alvos mobile (ADR-018: Simulador + Mac Catalyst + Windows via GitHub Actions; ADR-031:
+ * emulador Android). */
 function describeDeployTargets(deployResult) {
   if (deployResult.url) return deployResult.url;
   if (Array.isArray(deployResult.targets) && deployResult.targets.length) {
     const parts = deployResult.targets.map((t) => {
-      if (t.platform === 'ios-simulator') return t.ok ? `Simulador (${t.simulatorName || 'iPhone'})` : null;
+      if (t.platform === 'ios-simulator') return t.ok ? `Simulador (${t.simulatorName || 'iPhone'})` : 'Simulador iOS (falhou)';
+      if (t.platform === 'android-emulator') return t.ok ? `Emulador Android (${t.emulatorSerial || 'android'})` : 'Emulador Android (falhou)';
       if (t.platform === 'macos') return t.ok ? 'macOS (Catalyst)' : 'macOS (falhou)';
       if (t.platform === 'windows') return t.ok ? `Windows (${t.runUrl || 'GitHub Actions'})` : 'Windows (falhou)';
       return null;

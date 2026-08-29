@@ -1,6 +1,6 @@
 /**
- * Verificação real de UI mobile via Appium/XCUITest (ver ADR-029) — equivalente ao
- * lib/browserCheck.js (ADR-022), mas pro caminho iOS Simulador que humanStage.js pulava
+ * Verificação real de UI mobile via Appium (ver ADR-029/031) — equivalente ao lib/browserCheck.js
+ * (ADR-022), mas pros caminhos iOS Simulador/Android Emulador que humanStage.js pulava
  * incondicionalmente (ver comentário histórico em agent/stages/humanStage.js, que já documentava
  * isso como gap conhecido desde o ADR-014: "sem ferramenta de automação de UI nativa disponível").
  *
@@ -8,7 +8,9 @@
  * dependências de webdriverio/webdriver, que hoje arrasta @puppeteer/browsers e deepmerge-ts com
  * CVEs HIGH ativos (confirmado via `npm audit` antes de decidir por isso) só pra funcionalidade de
  * auto-download de browser que este uso nunca precisaria. Appium expõe uma API REST simples o
- * bastante pra não justificar esse custo.
+ * bastante pra não justificar esse custo — os dois drivers (XCUITest pro iOS, UiAutomator2 pro
+ * Android) falam o MESMO protocolo REST, só a árvore de acessibilidade e as capabilities mudam de
+ * formato.
  */
 const fs = require('fs');
 const path = require('path');
@@ -50,13 +52,13 @@ async function checkAppiumAvailable() {
   }
 }
 
-/** Extração leve dos rótulos visíveis na árvore de acessibilidade (XML do XCUITest) — mesmo
- * espírito do parsing de botões que summarizeHtml já faz pro lado web, sem puxar um parser XML só
- * pra isso. Usada só pra "a tela tem algum texto visível" (checagem de tela em branco) — inclui
- * texto estático de propósito. */
-function extractLabels(pageSourceXml) {
+/** Extração leve dos rótulos visíveis na árvore de acessibilidade — mesmo espírito do parsing de
+ * botões que summarizeHtml já faz pro lado web, sem puxar um parser XML só pra isso. Usada só pra
+ * "a tela tem algum texto visível" (checagem de tela em branco) — inclui texto estático de
+ * propósito. iOS (XCUITest) usa `label`/`name`; Android (UiAutomator2) usa `text`/`content-desc`. */
+function extractLabels(pageSourceXml, platform = 'ios') {
   const labels = new Set();
-  const re = /(?:label|name)="([^"]+)"/g;
+  const re = platform === 'android' ? /(?:text|content-desc)="([^"]+)"/g : /(?:label|name)="([^"]+)"/g;
   let m;
   while ((m = re.exec(pageSourceXml || ''))) {
     if (m[1].trim()) labels.add(m[1].trim());
@@ -76,7 +78,7 @@ function extractLabels(pageSourceXml) {
  * a combinação: tipo de elemento que não é claramente não-interativo (texto/imagem/campo/app) E
  * `accessible="true"` E `enabled="true"`.
  */
-const NON_TAPPABLE_TYPES = new Set([
+const IOS_NON_TAPPABLE_TYPES = new Set([
   'XCUIElementTypeApplication',
   'XCUIElementTypeStaticText',
   'XCUIElementTypeImage',
@@ -86,13 +88,13 @@ const NON_TAPPABLE_TYPES = new Set([
   'XCUIElementTypeWindow'
 ]);
 
-function extractTappableLabels(pageSourceXml) {
+function extractTappableLabelsIos(pageSourceXml) {
   const labels = new Set();
   const tagRe = /<(XCUIElementType\w+)\s[^>]*>/g;
   let m;
   while ((m = tagRe.exec(pageSourceXml || ''))) {
     const [tag, type] = m;
-    if (NON_TAPPABLE_TYPES.has(type)) continue;
+    if (IOS_NON_TAPPABLE_TYPES.has(type)) continue;
     if (!/\baccessible="true"/.test(tag) || !/\benabled="true"/.test(tag)) continue;
     const labelMatch = tag.match(/\blabel="([^"]+)"/);
     if (labelMatch && labelMatch[1].trim()) labels.add(labelMatch[1].trim());
@@ -100,24 +102,74 @@ function extractTappableLabels(pageSourceXml) {
   return [...labels];
 }
 
-async function createSession({ simulatorUdid, bundleId }) {
+/**
+ * Achado real (verificação ao vivo contra um app React Native/Compose de verdade num emulador
+ * Android): diferente do iOS, `clickable="true"` no Android (UiAutomator2) É o sinal direto e
+ * limpo de "isto é tocável" — sem a ambiguidade do `accessible` do iOS (que o VoiceOver também usa
+ * pra texto puramente informativo). Confirmado numa tela real de PIN: os botões de dígito são
+ * `class="android.widget.Button" clickable="true"` com o rótulo acessível no atributo
+ * `content-desc` (ex.: "Dígito 1") — o texto visível ("1") fica num `TextView` FILHO separado,
+ * `clickable="false"`, então cair só pro `text` perderia o rótulo certo nesses casos. Prioriza
+ * `content-desc`, cai pro `text` do próprio nó só se `content-desc` vier vazio.
+ *
+ * Achado real #2, mesma verificação: o XML que o Appium/UiAutomator2 devolve via `/source` usa o
+ * NOME DA CLASSE como tag (`<android.widget.Button ...>`), diferente do `adb shell uiautomator
+ * dump` (que usa `<node class="..." ...>` genérico) — minha primeira suposição, baseada só no dump
+ * bruto, não batia com o que o driver de verdade retorna. O regex de tag precisa casar qualquer
+ * nome de classe Android (`letras.pontos.Maiúsculas`), não um tag fixo `<node`.
+ */
+function extractTappableLabelsAndroid(pageSourceXml) {
+  const labels = new Set();
+  const tagRe = /<[\w.]+\s[^>]*\/?>/g;
+  let m;
+  while ((m = tagRe.exec(pageSourceXml || ''))) {
+    const tag = m[0];
+    if (!/\bclickable="true"/.test(tag) || !/\benabled="true"/.test(tag)) continue;
+    const contentDesc = tag.match(/\bcontent-desc="([^"]*)"/);
+    const text = tag.match(/\btext="([^"]*)"/);
+    const label = (contentDesc?.[1] || '').trim() || (text?.[1] || '').trim();
+    if (label) labels.add(label);
+  }
+  return [...labels];
+}
+
+function extractTappableLabels(pageSourceXml, platform = 'ios') {
+  return platform === 'android' ? extractTappableLabelsAndroid(pageSourceXml) : extractTappableLabelsIos(pageSourceXml);
+}
+
+function iosCapabilities({ simulatorUdid, bundleId }) {
+  return {
+    platformName: 'iOS',
+    'appium:automationName': 'XCUITest',
+    'appium:udid': simulatorUdid,
+    'appium:bundleId': bundleId,
+    'appium:noReset': true,
+    'appium:newCommandTimeout': 120
+  };
+}
+
+/** `appium:autoLaunch: false` — o app já foi aberto pelo `expo run:android` (ADR-031); relançar
+ * reiniciaria o processo/estado que acabou de subir, em vez de anexar na sessão já rodando. */
+function androidCapabilities({ emulatorSerial, androidPackage }) {
+  return {
+    platformName: 'Android',
+    'appium:automationName': 'UiAutomator2',
+    'appium:udid': emulatorSerial,
+    'appium:appPackage': androidPackage,
+    'appium:noReset': true,
+    'appium:autoLaunch': false,
+    'appium:newCommandTimeout': 120
+  };
+}
+
+async function createSession(platform, ids) {
+  const capabilities = platform === 'android' ? androidCapabilities(ids) : iosCapabilities(ids);
   const body = await appiumFetch(
     `${APPIUM_URL}/session`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        capabilities: {
-          alwaysMatch: {
-            platformName: 'iOS',
-            'appium:automationName': 'XCUITest',
-            'appium:udid': simulatorUdid,
-            'appium:bundleId': bundleId,
-            'appium:noReset': true,
-            'appium:newCommandTimeout': 120
-          }
-        }
-      })
+      body: JSON.stringify({ capabilities: { alwaysMatch: capabilities } })
     },
     SESSION_TIMEOUT_MS
   );
@@ -131,7 +183,7 @@ async function closeSession(sessionId) {
   try {
     await appiumFetch(`${APPIUM_URL}/session/${sessionId}`, { method: 'DELETE' });
   } catch {
-    // best-effort — não deixa vazar sessão travando o simulador, mas também não falha o teste por causa disso
+    // best-effort — não deixa vazar sessão travando o simulador/emulador, mas também não falha o teste por causa disso
   }
 }
 
@@ -144,31 +196,66 @@ async function takeScreenshot(sessionId, screenshotsDir, filename) {
   return filePath;
 }
 
-async function clickByLabel(sessionId, label) {
+/** iOS resolve por predicate string nativo do XCUITest; Android não tem equivalente — XPath é a
+ * estratégia universal do protocolo WebDriver, e cobre tanto content-desc quanto text num só XPath
+ * (`or`), já que o rótulo pode estar em qualquer um dos dois (ver extractTappableLabelsAndroid). */
+async function clickByLabel(sessionId, label, platform = 'ios') {
   const escaped = label.replace(/'/g, "\\'");
-  const found = await appiumFetch(`${APPIUM_URL}/session/${sessionId}/element`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ using: '-ios predicate string', value: `label == '${escaped}' OR name == '${escaped}'` })
-  });
+  const locator =
+    platform === 'android'
+      ? { using: '-android uiautomator', value: `new UiSelector().descriptionContains("${escaped}")` }
+      : { using: '-ios predicate string', value: `label == '${escaped}' OR name == '${escaped}'` };
+  let found;
+  try {
+    found = await appiumFetch(`${APPIUM_URL}/session/${sessionId}/element`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(locator)
+    });
+  } catch (err) {
+    if (platform !== 'android') throw err;
+    // UiSelector com aspas/caracteres especiais no rótulo pode falhar a montar — XPath cobre
+    // content-desc e text no mesmo locator como fallback universal.
+    found = await appiumFetch(`${APPIUM_URL}/session/${sessionId}/element`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ using: 'xpath', value: `//*[@content-desc='${escaped}' or @text='${escaped}']` })
+    });
+  }
   const elementId = found?.value?.ELEMENT || found?.value?.['element-6066-11e4-a52e-4f735466cecf'];
   if (!elementId) throw new Error(`Elemento com label "${label}" não encontrado`);
   await appiumFetch(`${APPIUM_URL}/session/${sessionId}/element/${elementId}/click`, { method: 'POST' });
 }
 
 /**
- * Abre o app já instalado no Simulador (por devopsLoadStage/deployStage) numa sessão XCUITest de
- * verdade: confirma que a árvore de acessibilidade não está vazia (equivalente mobile do
- * UX-BLANK-PAGE do browserCheck), tenta tocar num botão plausível de verdade, e tira
- * screenshot antes/depois. Degrada graciosamente (sem bloquear o teste humano) se não houver
- * servidor Appium acessível — mesma postura de checkPlaywrightAvailable.
+ * Abre o app já instalado no Simulador/Emulador (por devopsLoadStage/deployStage) numa sessão
+ * Appium de verdade: confirma que a árvore de acessibilidade não está vazia (equivalente mobile do
+ * UX-BLANK-PAGE do browserCheck), tenta tocar num botão plausível de verdade, e tira screenshot
+ * antes/depois. Degrada graciosamente (sem bloquear o teste humano) se não houver servidor Appium
+ * acessível — mesma postura de checkPlaywrightAvailable.
+ *
+ * `platform` é `'ios'` (default, compat com chamadas do ADR-029) ou `'android'` — deriva as
+ * capabilities/extração corretas; os IDs relevantes pra cada plataforma (simulatorUdid+bundleId ou
+ * emulatorSerial+androidPackage) é quem efetivamente distingue o alvo.
  */
-async function runMobileHumanTest({ simulatorUdid, bundleId, runConfig = {}, orchestrator }) {
-  if (!simulatorUdid || !bundleId) {
+async function runMobileHumanTest({
+  platform = 'ios',
+  simulatorUdid,
+  bundleId,
+  emulatorSerial,
+  androidPackage,
+  runConfig = {},
+  orchestrator
+}) {
+  const ids = platform === 'android' ? { emulatorSerial, androidPackage } : { simulatorUdid, bundleId };
+  const hasIds = platform === 'android' ? Boolean(emulatorSerial && androidPackage) : Boolean(simulatorUdid && bundleId);
+  const deviceLabel = platform === 'android' ? 'emulador Android' : 'Simulador';
+
+  if (!hasIds) {
     return {
       available: false,
       ok: true,
-      skippedReason: 'sem simulatorUdid/bundleId do deploy — não dá pra abrir uma sessão Appium sem saber onde/o quê.',
+      skippedReason: `sem os identificadores do deploy (${platform === 'android' ? 'emulatorSerial/androidPackage' : 'simulatorUdid/bundleId'}) — não dá pra abrir uma sessão Appium sem saber onde/o quê.`,
       issues: [],
       screenshots: []
     };
@@ -176,10 +263,11 @@ async function runMobileHumanTest({ simulatorUdid, bundleId, runConfig = {}, orc
 
   const available = await checkAppiumAvailable();
   if (!available) {
+    const driver = platform === 'android' ? 'uiautomator2' : 'xcuitest';
     return {
       available: false,
       ok: true,
-      skippedReason: `servidor Appium não respondeu em ${APPIUM_URL} (npx appium server, com o driver xcuitest instalado: appium driver install xcuitest)`,
+      skippedReason: `servidor Appium não respondeu em ${APPIUM_URL} (npx appium server, com o driver ${driver} instalado: appium driver install ${driver})`,
       issues: [],
       screenshots: []
     };
@@ -193,33 +281,33 @@ async function runMobileHumanTest({ simulatorUdid, bundleId, runConfig = {}, orc
   let clickedLabel = null;
 
   try {
-    sessionId = await createSession({ simulatorUdid, bundleId });
+    sessionId = await createSession(platform, ids);
 
-    const shot1 = await takeScreenshot(sessionId, screenshotsDir, `human-mobile-${stamp}-1-inicial.png`);
+    const shot1 = await takeScreenshot(sessionId, screenshotsDir, `human-mobile-${platform}-${stamp}-1-inicial.png`);
     if (shot1) screenshots.push(shot1);
 
     const sourceBody = await appiumFetch(`${APPIUM_URL}/session/${sessionId}/source`);
     const pageSource = sourceBody?.value || '';
-    const labels = extractLabels(pageSource);
+    const labels = extractLabels(pageSource, platform);
 
     if (!labels.length) {
       issues.push({
         id: 'UX-MOBILE-BLANK-SCREEN',
         severity: 'CRITICAL',
-        title: 'Tela do app no Simulador não expõe nenhum elemento de acessibilidade',
-        description: 'A sessão XCUITest abriu, mas a árvore de acessibilidade veio vazia — sinal de tela em branco ou crash silencioso, do mesmo jeito que UX-BLANK-PAGE pega isso no lado web.',
-        remediation: 'Abrir o Simulador manualmente e conferir se o app realmente renderizou algo (erro de bundle JS do Metro é a causa mais comum).'
+        title: `Tela do app no ${deviceLabel} não expõe nenhum elemento de acessibilidade`,
+        description: `A sessão Appium abriu, mas a árvore de acessibilidade veio vazia — sinal de tela em branco ou crash silencioso, do mesmo jeito que UX-BLANK-PAGE pega isso no lado web.`,
+        remediation: 'Abrir o Simulador/Emulador manualmente e conferir se o app realmente renderizou algo (erro de bundle JS do Metro é a causa mais comum).'
       });
     }
 
-    const tappableLabels = extractTappableLabels(pageSource);
+    const tappableLabels = extractTappableLabels(pageSource, platform);
     const target = tappableLabels.find((l) => CTA_PATTERN.test(l));
     if (target) {
       try {
-        await clickByLabel(sessionId, target);
+        await clickByLabel(sessionId, target, platform);
         clickedLabel = target;
         await new Promise((r) => setTimeout(r, 800));
-        const shot2 = await takeScreenshot(sessionId, screenshotsDir, `human-mobile-${stamp}-2-apos-toque.png`);
+        const shot2 = await takeScreenshot(sessionId, screenshotsDir, `human-mobile-${platform}-${stamp}-2-apos-toque.png`);
         if (shot2) screenshots.push(shot2);
       } catch (err) {
         issues.push({
@@ -235,9 +323,12 @@ async function runMobileHumanTest({ simulatorUdid, bundleId, runConfig = {}, orc
     issues.push({
       id: 'UX-MOBILE-SESSION-FAILED',
       severity: 'HIGH',
-      title: 'Não foi possível abrir/usar uma sessão Appium contra o app no Simulador',
+      title: `Não foi possível abrir/usar uma sessão Appium contra o app no ${deviceLabel}`,
       description: err.message,
-      remediation: 'Confirmar que o Simulador está com o app instalado e o driver xcuitest está funcionando (appium driver doctor xcuitest).'
+      remediation:
+        platform === 'android'
+          ? 'Confirmar que o emulador está com o app instalado e o driver uiautomator2 está funcionando (appium driver doctor uiautomator2).'
+          : 'Confirmar que o Simulador está com o app instalado e o driver xcuitest está funcionando (appium driver doctor xcuitest).'
     });
   } finally {
     await closeSession(sessionId);
@@ -247,8 +338,8 @@ async function runMobileHumanTest({ simulatorUdid, bundleId, runConfig = {}, orc
   orchestrator?.log?.(
     'human',
     ok
-      ? `Verificação de UI real no Simulador (Appium/XCUITest): app abriu${clickedLabel ? `, toquei em "${clickedLabel}"` : ''}, sem erro grave.`
-      : `Verificação de UI real no Simulador (Appium/XCUITest) achou ${issues.length} problema(s).`,
+      ? `Verificação de UI real no ${deviceLabel} (Appium): app abriu${clickedLabel ? `, toquei em "${clickedLabel}"` : ''}, sem erro grave.`
+      : `Verificação de UI real no ${deviceLabel} (Appium) achou ${issues.length} problema(s).`,
     ok ? 'info' : 'warning'
   );
 

@@ -248,3 +248,127 @@ describe('runMobileHumanTest — achado real: contra um servidor Appium fake que
     }
   });
 });
+
+describe('runMobileHumanTest — sem os identificadores certos pra Android', () => {
+  it('degrada graciosamente sem emulatorSerial/androidPackage', async () => {
+    const { runMobileHumanTest } = fresh('../lib/mobileHumanTest');
+    const result = await runMobileHumanTest({ platform: 'android', runConfig: {}, orchestrator: { log: () => {} } });
+    assert.equal(result.available, false);
+    assert.equal(result.ok, true);
+    assert.match(result.skippedReason, /emulatorSerial\/androidPackage/);
+  });
+});
+
+describe('extractTappableLabels (Android) — achado real, verificado ao vivo contra um app RN/Compose de verdade num emulador', () => {
+  it('achado real #1: ignora texto NÃO clicável (título/label decorativo)', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    const xml = `<android.widget.TextView index="1" text="Confirme o PIN" clickable="false" enabled="true" content-desc="" />`;
+    assert.deepEqual(extractTappableLabels(xml, 'android'), []);
+  });
+
+  it('achado real #2: o XML real do Appium usa o NOME DA CLASSE como tag (não <node>) — prioriza content-desc sobre text', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    // Mesma forma exata capturada ao vivo: o texto visível ("1") fica num TextView FILHO
+    // clickable="false" separado — o content-desc do botão PAI ("Dígito 1") é o rótulo certo.
+    const xml = `<android.widget.Button index="9" text="" content-desc="Dígito 1" clickable="true" enabled="true"><android.widget.TextView index="1" text="1" content-desc="" clickable="false" enabled="true" /></android.widget.Button>`;
+    assert.deepEqual(extractTappableLabels(xml, 'android'), ['Dígito 1']);
+  });
+
+  it('cai pro atributo text quando content-desc vem vazio', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    const xml = `<android.widget.Button index="0" text="Criar conta" content-desc="" clickable="true" enabled="true" />`;
+    assert.deepEqual(extractTappableLabels(xml, 'android'), ['Criar conta']);
+  });
+
+  it('ignora elemento desabilitado mesmo que clicável', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    const xml = `<android.widget.Button index="0" text="" content-desc="Enviar" clickable="true" enabled="false" />`;
+    assert.deepEqual(extractTappableLabels(xml, 'android'), []);
+  });
+
+  it('a tag raiz <hierarchy> (sem clickable) nunca é confundida com um elemento tocável', () => {
+    const { extractTappableLabels } = fresh('../lib/mobileHumanTest');
+    const xml = `<hierarchy index="0" class="hierarchy" rotation="0"><android.widget.Button index="0" text="" content-desc="Entrar" clickable="true" enabled="true" /></hierarchy>`;
+    assert.deepEqual(extractTappableLabels(xml, 'android'), ['Entrar']);
+  });
+});
+
+describe('runMobileHumanTest — Android, achado real: contra um servidor Appium fake que fala o protocolo UiAutomator2', () => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-mobile-android-project-'));
+
+  function startFakeAppium(handler) {
+    const server = http.createServer((req, res) => {
+      const chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
+        handler(req, res, body);
+      });
+    });
+    return new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const { port } = server.address();
+        resolve({ server, baseUrl: `http://127.0.0.1:${port}` });
+      });
+    });
+  }
+
+  function closeFakeAppium(server) {
+    return new Promise((resolve) => server.close(() => resolve()));
+  }
+
+  function sendJson(res, status, value) {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ value }));
+  }
+
+  it('achado real: toca no botão certo via -android uiautomator, ignorando o texto não clicável que também bateria no regex de CTA', async () => {
+    const onePxPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    ).toString('base64');
+    let clickedElementId = null;
+    const { server, baseUrl } = await startFakeAppium((req, res, body) => {
+      if (req.url === '/status') return sendJson(res, 200, { ready: true });
+      if (req.method === 'POST' && req.url === '/session') return sendJson(res, 200, { sessionId: 'sess-android-1' });
+      if (req.url === '/session/sess-android-1/screenshot') return sendJson(res, 200, onePxPng);
+      if (req.url === '/session/sess-android-1/source') {
+        return sendJson(
+          res,
+          200,
+          `<hierarchy index="0" class="hierarchy"><android.widget.TextView index="0" text="Entrar no App" content-desc="" clickable="false" enabled="true" /><android.widget.Button index="1" text="" content-desc="Criar conta" clickable="true" enabled="true" /></hierarchy>`
+        );
+      }
+      if (req.method === 'POST' && req.url === '/session/sess-android-1/element') {
+        assert.equal(body.using, '-android uiautomator');
+        assert.match(body.value, /descriptionContains\("Criar conta"\)/);
+        return sendJson(res, 200, { ELEMENT: 'el-android-1' });
+      }
+      if (req.method === 'POST' && req.url === '/session/sess-android-1/element/el-android-1/click') {
+        clickedElementId = 'el-android-1';
+        return sendJson(res, 200, null);
+      }
+      if (req.method === 'DELETE' && req.url === '/session/sess-android-1') return sendJson(res, 200, null);
+      sendJson(res, 404, { error: 'not found', message: `sem handler pra ${req.method} ${req.url}` });
+    });
+    process.env.FORJA_APPIUM_URL = baseUrl;
+    try {
+      const { runMobileHumanTest } = fresh('../lib/mobileHumanTest');
+      const result = await runMobileHumanTest({
+        platform: 'android',
+        emulatorSerial: 'emulator-5554',
+        androidPackage: 'com.forja.demo',
+        runConfig: { targetPath: workDir },
+        orchestrator: { log: () => {} }
+      });
+      assert.equal(result.available, true);
+      assert.equal(result.ok, true, JSON.stringify(result.issues));
+      assert.equal(result.clickedLabel, 'Criar conta');
+      assert.equal(clickedElementId, 'el-android-1');
+      assert.equal(result.screenshots.length, 2);
+    } finally {
+      delete process.env.FORJA_APPIUM_URL;
+      await closeFakeAppium(server);
+    }
+  });
+});

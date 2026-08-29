@@ -527,6 +527,7 @@ describe('humanStage', () => {
         const stage = fresh('../agent/stages/humanStage');
         const orch = mobileOrchestrator();
         await stage.run(orch, {});
+        assert.equal(receivedArgs.platform, 'ios');
         assert.equal(receivedArgs.simulatorUdid, 'UDID-1');
         assert.equal(receivedArgs.bundleId, 'com.forja.demo');
         assert.equal(orch.currentTask.humanReport.skipped, false);
@@ -553,6 +554,81 @@ describe('humanStage', () => {
         assert.equal(orch.currentTask.humanReport.passed, false);
         assert.equal(orch.pauseCalls[0].nextStage, 'userFix');
         assert.match(orch.pauseCalls[0].message, /1 problema/);
+      } finally {
+        mobileHumanTest.runMobileHumanTest = original;
+      }
+    });
+
+    it('ADR-031: com só o Android tendo tido deploy bem-sucedido, testa só o Android (platform correto, ids corretos)', async () => {
+      const mobileHumanTest = fresh('../lib/mobileHumanTest');
+      const original = mobileHumanTest.runMobileHumanTest;
+      let receivedArgs = null;
+      mobileHumanTest.runMobileHumanTest = async (args) => {
+        receivedArgs = args;
+        return { available: true, ok: true, issues: [], screenshots: [] };
+      };
+      try {
+        const stage = fresh('../agent/stages/humanStage');
+        const orch = mobileOrchestrator({
+          currentTask: {
+            id: 'fake-run',
+            files: [{ path: 'package.json', content: JSON.stringify({ dependencies: { expo: '^57.0.0' } }) }],
+            tests: [],
+            securityIssues: [],
+            deployTargets: [
+              { platform: 'ios-simulator', ok: false, error: 'sem Simulador disponível' },
+              { platform: 'android-emulator', ok: true, emulatorSerial: 'emulator-5554', androidPackage: 'com.forja.demo' }
+            ]
+          }
+        });
+        await stage.run(orch, {});
+        assert.equal(receivedArgs.platform, 'android');
+        assert.equal(receivedArgs.emulatorSerial, 'emulator-5554');
+        assert.equal(receivedArgs.androidPackage, 'com.forja.demo');
+        assert.equal(orch.currentTask.humanReport.passed, true);
+        assert.equal(orch.pauseCalls[0].nextStage, 'prodReady');
+      } finally {
+        mobileHumanTest.runMobileHumanTest = original;
+      }
+    });
+
+    it('ADR-031: com iOS e Android tendo tido deploy bem-sucedido, testa os DOIS e mescla os achados', async () => {
+      const mobileHumanTest = fresh('../lib/mobileHumanTest');
+      const original = mobileHumanTest.runMobileHumanTest;
+      const calledPlatforms = [];
+      mobileHumanTest.runMobileHumanTest = async (args) => {
+        calledPlatforms.push(args.platform);
+        if (args.platform === 'android') {
+          return {
+            available: true,
+            ok: false,
+            issues: [{ id: 'UX-MOBILE-BLANK-SCREEN', severity: 'CRITICAL' }],
+            screenshots: ['/tmp/android-1.png']
+          };
+        }
+        return { available: true, ok: true, issues: [], screenshots: ['/tmp/ios-1.png'] };
+      };
+      try {
+        const stage = fresh('../agent/stages/humanStage');
+        const orch = mobileOrchestrator({
+          currentTask: {
+            id: 'fake-run',
+            files: [{ path: 'package.json', content: JSON.stringify({ dependencies: { expo: '^57.0.0' } }) }],
+            tests: [],
+            securityIssues: [],
+            deployTargets: [
+              { platform: 'ios-simulator', ok: true, simulatorUdid: 'UDID-1', bundleId: 'com.forja.demo' },
+              { platform: 'android-emulator', ok: true, emulatorSerial: 'emulator-5554', androidPackage: 'com.forja.demo' }
+            ]
+          }
+        });
+        await stage.run(orch, {});
+        assert.deepEqual(calledPlatforms.sort(), ['android', 'ios']);
+        // um dos dois achou problema → o relatório combinado não passa, mesmo o iOS tendo ido bem
+        assert.equal(orch.currentTask.humanReport.passed, false);
+        assert.equal(orch.currentTask.humanReport.issues.length, 1);
+        assert.equal(orch.currentTask.humanReport.screenshots.length, 2);
+        assert.equal(orch.pauseCalls[0].nextStage, 'userFix');
       } finally {
         mobileHumanTest.runMobileHumanTest = original;
       }

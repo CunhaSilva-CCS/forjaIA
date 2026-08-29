@@ -49,6 +49,11 @@ describe('mobileDeploy.runExpoRunIos (ADR-014 fix — achado real na validação
       return originalOpenSync(p, ...rest);
     };
     try {
+      // expoRunProcess.js (extraído de mobileDeploy.js) destrutura `spawn` de child_process no
+      // topo do módulo — precisa ser fresh()-ado DEPOIS do mock acima, senão a referência local já
+      // cacheada continua apontando pro spawn real (mesmo bug de padrão já visto com generateJson
+      // em lib/llm.js).
+      fresh('../lib/expoRunProcess');
       const mobileDeploy = fresh('../lib/mobileDeploy');
       const promise = mobileDeploy.__test__.runExpoRunIos('/tmp/x', 'udid-1');
       assert.ok(capturedLogPath, 'esperava que um arquivo de log fosse aberto');
@@ -85,6 +90,11 @@ describe('mobileDeploy.runExpoRunIos (ADR-014 fix — achado real na validação
       return originalOpenSync(p, ...rest);
     };
     try {
+      // expoRunProcess.js (extraído de mobileDeploy.js) destrutura `spawn` de child_process no
+      // topo do módulo — precisa ser fresh()-ado DEPOIS do mock acima, senão a referência local já
+      // cacheada continua apontando pro spawn real (mesmo bug de padrão já visto com generateJson
+      // em lib/llm.js).
+      fresh('../lib/expoRunProcess');
       const mobileDeploy = fresh('../lib/mobileDeploy');
       const controller = new AbortController();
       const promise = mobileDeploy.__test__.runExpoRunIos('/tmp/x', 'udid-1', { signal: controller.signal });
@@ -113,6 +123,11 @@ describe('mobileDeploy.runExpoRunIos (ADR-014 fix — achado real na validação
       return originalOpenSync(p, ...rest);
     };
     try {
+      // expoRunProcess.js (extraído de mobileDeploy.js) destrutura `spawn` de child_process no
+      // topo do módulo — precisa ser fresh()-ado DEPOIS do mock acima, senão a referência local já
+      // cacheada continua apontando pro spawn real (mesmo bug de padrão já visto com generateJson
+      // em lib/llm.js).
+      fresh('../lib/expoRunProcess');
       const mobileDeploy = fresh('../lib/mobileDeploy');
       const promise = mobileDeploy.__test__.runExpoRunIos('/tmp/x', 'udid-1');
       spawnedChild.emit('exit', 1);
@@ -141,6 +156,11 @@ describe('mobileDeploy.runExpoRunIos (ADR-014 fix — achado real na validação
     };
     const controller = new AbortController();
     try {
+      // expoRunProcess.js (extraído de mobileDeploy.js) destrutura `spawn` de child_process no
+      // topo do módulo — precisa ser fresh()-ado DEPOIS do mock acima, senão a referência local já
+      // cacheada continua apontando pro spawn real (mesmo bug de padrão já visto com generateJson
+      // em lib/llm.js).
+      fresh('../lib/expoRunProcess');
       const mobileDeploy = fresh('../lib/mobileDeploy');
       const promise = mobileDeploy.__test__.runExpoRunIos('/tmp/x', 'udid-1', { signal: controller.signal });
       promise.catch(() => {}); // será abortada no cleanup — evita unhandledRejection

@@ -22,9 +22,10 @@ async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
   orchestrator.broadcast('agent-active', { agent: 'human' });
 
-  // Deploy mobile (Simulador) não tem URL HTTP — o teste humano via fetch não se aplica (ver
-  // ADR-014). Em vez disso tenta um teste real via Appium/XCUITest (ADR-029) contra o app já
-  // instalado; se não houver servidor Appium disponível no ambiente, degrada pro mesmo "skipped"
+  // Deploy mobile (Simulador/Emulador) não tem URL HTTP — o teste humano via fetch não se aplica
+  // (ver ADR-014). Em vez disso tenta um teste real via Appium (ADR-029/031) contra CADA app já
+  // instalado (iOS e/ou Android — os dois podem ter tido sucesso no mesmo deploy multi-plataforma,
+  // ver ADR-018); se não houver servidor Appium disponível no ambiente, degrada pro mesmo "skipped"
   // explícito de antes em vez de travar ou inventar resultado.
   const { detectProjectType } = require('../../lib/projectType');
   if (detectProjectType(orchestrator.currentTask.files) === 'mobile-expo') {
@@ -33,30 +34,65 @@ async function run(orchestrator, runConfig) {
     // restaura deployTargets em currentTask explicitamente, mas esse fallback é defesa em
     // profundidade caso um caminho futuro reconstrua currentTask sem passar por lá.
     const deployTargets = orchestrator.currentTask.deployTargets || orchestrator.savedConfig?.deployTargets || [];
-    const simTarget = deployTargets.find((t) => t.platform === 'ios-simulator' && t.ok);
-    const mobileCheck = await runMobileHumanTest({
-      simulatorUdid: simTarget?.simulatorUdid,
-      bundleId: simTarget?.bundleId,
-      runConfig,
-      orchestrator
-    });
+    const iosTarget = deployTargets.find((t) => t.platform === 'ios-simulator' && t.ok);
+    const androidTarget = deployTargets.find((t) => t.platform === 'android-emulator' && t.ok);
 
-    if (!mobileCheck.available) {
-      orchestrator.log(
-        'human',
-        `Deploy mobile no Simulador — teste humano automatizado não rodou (${mobileCheck.skippedReason}).`,
-        'warning'
-      );
+    const checks = [];
+    if (iosTarget) {
+      checks.push({
+        platform: 'ios',
+        result: await runMobileHumanTest({
+          platform: 'ios',
+          simulatorUdid: iosTarget.simulatorUdid,
+          bundleId: iosTarget.bundleId,
+          runConfig,
+          orchestrator
+        })
+      });
+    }
+    if (androidTarget) {
+      checks.push({
+        platform: 'android',
+        result: await runMobileHumanTest({
+          platform: 'android',
+          emulatorSerial: androidTarget.emulatorSerial,
+          androidPackage: androidTarget.androidPackage,
+          runConfig,
+          orchestrator
+        })
+      });
+    }
+    if (!checks.length) {
+      // Nenhum alvo mobile teve deploy bem-sucedido — mesmo shape de "não disponível" de antes,
+      // só que agora cobrindo o caso de os dois (iOS e Android) terem falhado no deployStage.
+      checks.push({
+        platform: 'ios',
+        result: {
+          available: false,
+          ok: true,
+          skippedReason: 'nenhum alvo mobile (Simulador/Emulador) teve deploy bem-sucedido nesta run.',
+          issues: [],
+          screenshots: []
+        }
+      });
+    }
+
+    const anyAvailable = checks.some((c) => c.result.available);
+    const allOk = checks.every((c) => c.result.ok);
+    const mergedIssues = checks.flatMap((c) => c.result.issues || []);
+    const mergedScreenshots = checks.flatMap((c) => c.result.screenshots || []);
+
+    if (!anyAvailable) {
+      const reasons = checks.map((c) => `${c.platform}: ${c.result.skippedReason}`).join(' | ');
+      orchestrator.log('human', `Deploy mobile — teste humano automatizado não rodou (${reasons}).`, 'warning');
     }
 
     const humanReport = {
-      passed: mobileCheck.ok,
-      skipped: !mobileCheck.available,
-      reason: mobileCheck.available
-        ? null
-        : mobileCheck.skippedReason || 'Deploy mobile (Simulador) não expõe URL HTTP.',
-      issues: mobileCheck.issues || [],
-      screenshots: mobileCheck.screenshots || []
+      passed: allOk,
+      skipped: !anyAvailable,
+      reason: anyAvailable ? null : checks.map((c) => c.result.skippedReason).filter(Boolean).join(' | ') || 'Deploy mobile não expõe URL HTTP.',
+      issues: mergedIssues,
+      screenshots: mergedScreenshots
     };
     orchestrator.currentTask.humanReport = humanReport;
     orchestrator.savedConfig = {
@@ -71,12 +107,13 @@ async function run(orchestrator, runConfig) {
       data: humanReport
     });
 
+    const platformsChecked = checks.map((c) => c.platform).join('+');
     if (humanReport.passed) {
       await orchestrator.pauseForApproval(
         'prodReady',
-        mobileCheck.available
-          ? 'Teste humano no Simulador (Appium/XCUITest) aprovado. Aprove o checklist de produção.'
-          : 'Deploy mobile no Simulador — teste humano automatizado não se aplica aqui. Aprove o checklist de produção.'
+        anyAvailable
+          ? `Teste humano no(s) ${platformsChecked} (Appium) aprovado. Aprove o checklist de produção.`
+          : 'Deploy mobile — teste humano automatizado não se aplica aqui. Aprove o checklist de produção.'
       );
       return;
     }
@@ -84,7 +121,7 @@ async function run(orchestrator, runConfig) {
     const n = Array.isArray(humanReport.issues) ? humanReport.issues.length : 0;
     await orchestrator.pauseForApproval(
       'userFix',
-      `Humano no Simulador (Appium/XCUITest) encontrou ${n} problema(s). Aprove o Corretor do Usuário (ou envie um relato próprio).`
+      `Humano no(s) ${platformsChecked} (Appium) encontrou ${n} problema(s). Aprove o Corretor do Usuário (ou envie um relato próprio).`
     );
     return;
   }

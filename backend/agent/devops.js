@@ -67,15 +67,30 @@ module.exports = {
       for (const file of files) writeSafely(file);
     }
 
-    // Simulador de iPhone é sempre tentado (comportamento original, ADR-014) — Mac (Catalyst) e
-    // Windows (GitHub Actions) são adicionais opcionais (ADR-018): tentados só quando o projeto
-    // já tem o suporte configurado, e uma falha num deles não derruba os outros.
+    // Simulador de iPhone e emulador Android são sempre tentados (par padrão de qualquer projeto
+    // Expo/RN — ADR-014/ADR-031) — Mac (Catalyst) e Windows (GitHub Actions) são adicionais
+    // opcionais (ADR-018): tentados só quando o projeto já tem o suporte configurado, e uma falha
+    // num alvo não derruba os outros.
     const { deployToSimulator, deployToMac, supportsMacCatalyst } = require('../lib/mobileDeploy');
+    const { deployToAndroidEmulator } = require('../lib/androidDeploy');
     const { supportsWindows, triggerWindowsBuild } = require('../lib/windowsDeploy');
 
     const targets = [];
-    const simResult = await deployToSimulator({ projectDir: deployDir, orchestrator });
-    targets.push({ platform: 'ios-simulator', ok: true, ...simResult });
+    try {
+      const simResult = await deployToSimulator({ projectDir: deployDir, orchestrator });
+      targets.push({ platform: 'ios-simulator', ok: true, ...simResult });
+    } catch (err) {
+      orchestrator.log('devops', `Deploy no Simulador iOS falhou: ${err.message}`, 'warning');
+      targets.push({ platform: 'ios-simulator', ok: false, error: err.message });
+    }
+
+    try {
+      const androidResult = await deployToAndroidEmulator({ projectDir: deployDir, orchestrator });
+      targets.push({ platform: 'android-emulator', ok: true, ...androidResult });
+    } catch (err) {
+      orchestrator.log('devops', `Deploy no emulador Android falhou: ${err.message}`, 'warning');
+      targets.push({ platform: 'android-emulator', ok: false, error: err.message });
+    }
 
     if (await supportsMacCatalyst(deployDir)) {
       try {

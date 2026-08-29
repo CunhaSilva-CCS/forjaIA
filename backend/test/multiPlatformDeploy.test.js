@@ -21,33 +21,40 @@ const mobileFiles = [
   { path: 'package.json', content: JSON.stringify({ dependencies: { expo: '^57.0.0' } }) }
 ];
 
-describe('devops.deployMobile — orquestração multi-plataforma (ADR-018)', () => {
-  it('sempre tenta o Simulador; pula Mac/Windows quando o projeto não tem suporte', async () => {
+describe('devops.deployMobile — orquestração multi-plataforma (ADR-018/031)', () => {
+  it('sempre tenta Simulador iOS e emulador Android; pula Mac/Windows quando o projeto não tem suporte', async () => {
     const devops = fresh('../agent/devops');
     const mobileDeploy = fresh('../lib/mobileDeploy');
+    const androidDeploy = fresh('../lib/androidDeploy');
     const windowsDeploy = fresh('../lib/windowsDeploy');
 
     mobileDeploy.deployToSimulator = async () => ({ type: 'ios-simulator', url: null, simulatorName: 'iPhone 17' });
     mobileDeploy.supportsMacCatalyst = async () => false;
+    androidDeploy.deployToAndroidEmulator = async () => ({ type: 'android-emulator', url: null, emulatorSerial: 'emulator-5554' });
     windowsDeploy.supportsWindows = () => false;
 
     const orchestrator = { log: () => {} };
     const result = await devops.deployMobile(mobileFiles, {}, orchestrator);
 
     assert.equal(result.runtime, 'multi-platform');
-    assert.equal(result.targets.length, 1);
-    assert.equal(result.targets[0].platform, 'ios-simulator');
-    assert.equal(result.targets[0].ok, true);
+    assert.equal(result.targets.length, 2);
+    const byPlatform = Object.fromEntries(result.targets.map((t) => [t.platform, t]));
+    assert.equal(byPlatform['ios-simulator'].ok, true);
+    assert.equal(byPlatform['android-emulator'].ok, true);
   });
 
-  it('achado real: tenta Mac e Windows quando o projeto sinaliza suporte, sem derrubar o Simulador se um deles falhar', async () => {
+  it('achado real: tenta Mac e Windows quando o projeto sinaliza suporte, sem derrubar os outros alvos se um deles falhar', async () => {
     const devops = fresh('../agent/devops');
     const mobileDeploy = fresh('../lib/mobileDeploy');
+    const androidDeploy = fresh('../lib/androidDeploy');
     const windowsDeploy = fresh('../lib/windowsDeploy');
 
     mobileDeploy.deployToSimulator = async () => ({ type: 'ios-simulator', url: null, simulatorName: 'iPhone 17' });
     mobileDeploy.supportsMacCatalyst = async () => true;
     mobileDeploy.deployToMac = async () => ({ type: 'mac-catalyst', url: null, target: 'My Mac' });
+    androidDeploy.deployToAndroidEmulator = async () => {
+      throw new Error('emulador Android não bootou a tempo neste teste');
+    };
     windowsDeploy.supportsWindows = () => true;
     windowsDeploy.triggerWindowsBuild = async () => {
       throw new Error('build falhou de propósito neste teste');
@@ -57,13 +64,36 @@ describe('devops.deployMobile — orquestração multi-plataforma (ADR-018)', ()
     const orchestrator = { log: (agent, msg, type) => logs.push({ msg, type }) };
     const result = await devops.deployMobile(mobileFiles, {}, orchestrator);
 
-    assert.equal(result.targets.length, 3);
+    assert.equal(result.targets.length, 4);
     const byPlatform = Object.fromEntries(result.targets.map((t) => [t.platform, t]));
     assert.equal(byPlatform['ios-simulator'].ok, true);
+    assert.equal(byPlatform['android-emulator'].ok, false);
+    assert.match(byPlatform['android-emulator'].error, /não bootou a tempo/);
     assert.equal(byPlatform.macos.ok, true);
     assert.equal(byPlatform.windows.ok, false);
     assert.match(byPlatform.windows.error, /build falhou de propósito/);
+    assert.ok(logs.some((l) => /Deploy no emulador Android falhou/.test(l.msg) && l.type === 'warning'));
     assert.ok(logs.some((l) => /Build Windows falhou/.test(l.msg) && l.type === 'warning'));
+  });
+
+  it('achado real: falha no Simulador iOS não derruba o Android nem os outros alvos', async () => {
+    const devops = fresh('../agent/devops');
+    const mobileDeploy = fresh('../lib/mobileDeploy');
+    const androidDeploy = fresh('../lib/androidDeploy');
+    const windowsDeploy = fresh('../lib/windowsDeploy');
+
+    mobileDeploy.deployToSimulator = async () => {
+      throw new Error('nenhum Simulador de iPhone disponível neste teste');
+    };
+    mobileDeploy.supportsMacCatalyst = async () => false;
+    androidDeploy.deployToAndroidEmulator = async () => ({ type: 'android-emulator', url: null, emulatorSerial: 'emulator-5554' });
+    windowsDeploy.supportsWindows = () => false;
+
+    const result = await devops.deployMobile(mobileFiles, {}, { log: () => {} });
+
+    const byPlatform = Object.fromEntries(result.targets.map((t) => [t.platform, t]));
+    assert.equal(byPlatform['ios-simulator'].ok, false);
+    assert.equal(byPlatform['android-emulator'].ok, true);
   });
 });
 
@@ -78,6 +108,7 @@ describe('deployStage.describeDeployTargets (ADR-018)', () => {
       runtime: 'multi-platform',
       targets: [
         { platform: 'ios-simulator', ok: true, simulatorName: 'iPhone 17' },
+        { platform: 'android-emulator', ok: false, error: 'y' },
         { platform: 'macos', ok: true, target: 'My Mac' },
         { platform: 'windows', ok: false, error: 'x' }
       ]
@@ -94,6 +125,7 @@ describe('deployStage.describeDeployTargets (ADR-018)', () => {
     return stage.run(orchestrator, {}).then(() => {
       const combined = messages.join(' | ');
       assert.match(combined, /Simulador \(iPhone 17\)/);
+      assert.match(combined, /Emulador Android \(falhou\)/);
       assert.match(combined, /macOS \(Catalyst\)/);
       assert.match(combined, /Windows \(falhou\)/);
     });
