@@ -391,9 +391,10 @@ class Orchestrator extends EventEmitter {
       }));
       this.savedPrompt = prompt;
 
+      const { summarizePlan } = require('../lib/architectPlan');
       this.log(
         'architect',
-        `Planejamento concluído. ${plan.files.length} arquivos planejados. ${(plan.adrs || []).length} ADRs documentados.`,
+        `Planejamento concluído. ${summarizePlan(plan)}.`,
         'success'
       );
       this.broadcast('agent-finished', { agent: 'architect', status: 'success', data: plan });
@@ -511,10 +512,15 @@ class Orchestrator extends EventEmitter {
     this.savedConfig = { ...runConfig, healingAttempts: this.healingAttempts, userFixAttempts: this.userFixAttempts };
 
     if (planPatch) {
-      if (planPatch.files && nextStage === 'coder') this.savedPlan.files = planPatch.files;
+      const { normalizePlan } = require('../lib/architectPlan');
+      if (nextStage === 'coder') {
+        this.savedPlan = normalizePlan({
+          ...this.savedPlan,
+          ...planPatch
+        });
+      }
       if (planPatch.adrs && (nextStage === 'coder' || nextStage === 'qa')) {
-        this.savedPlan.adrs = planPatch.adrs;
-        this.currentTask.adrs = planPatch.adrs;
+        this.currentTask.adrs = this.savedPlan.adrs;
       }
     }
 

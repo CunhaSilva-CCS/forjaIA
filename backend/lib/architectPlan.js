@@ -1,0 +1,272 @@
+const path = require('path');
+
+const EMPTY_PLAN = {
+  files: [],
+  adrs: [],
+  apiContracts: [],
+  dataModels: [],
+  dependencies: [],
+  nonFunctional: []
+};
+
+function normalizeFiles(files) {
+  if (!Array.isArray(files)) return [];
+  return files
+    .map((f) => {
+      const filePath = f?.path || f?.filePath || f?.filename || f?.name;
+      if (!filePath) return null;
+      return {
+        name: f.name || path.basename(filePath),
+        path: filePath,
+        purpose: typeof f.purpose === 'string' ? f.purpose.trim() : undefined
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeAdrs(adrs) {
+  if (!Array.isArray(adrs)) return [];
+  return adrs
+    .map((adr) => {
+      if (!adr?.id || !adr?.title) return null;
+      return {
+        id: String(adr.id).trim(),
+        title: String(adr.title).trim(),
+        status: String(adr.status || 'Proposto').trim(),
+        context: String(adr.context || '').trim(),
+        decision: String(adr.decision || '').trim(),
+        consequences: String(adr.consequences || '').trim()
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeApiContracts(contracts) {
+  if (!Array.isArray(contracts)) return [];
+  return contracts
+    .map((c) => {
+      const routePath = c?.path || c?.route;
+      const method = c?.method;
+      if (!method || !routePath) return null;
+      return {
+        method: String(method).trim().toUpperCase(),
+        path: String(routePath).trim(),
+        description: String(c.description || '').trim(),
+        auth: typeof c.auth === 'string' ? c.auth.trim() : c.auth === true ? 'required' : undefined,
+        request: c.request ?? undefined,
+        response: c.response ?? undefined
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeDataModels(models) {
+  if (!Array.isArray(models)) return [];
+  return models
+    .map((m) => {
+      const name = m?.name;
+      if (!name) return null;
+      const fields = Array.isArray(m.fields)
+        ? m.fields
+            .map((f) => {
+              if (!f?.name) return null;
+              return {
+                name: String(f.name).trim(),
+                type: String(f.type || 'string').trim(),
+                required: Boolean(f.required),
+                description: typeof f.description === 'string' ? f.description.trim() : undefined
+              };
+            })
+            .filter(Boolean)
+        : [];
+      return {
+        name: String(name).trim(),
+        description: typeof m.description === 'string' ? m.description.trim() : undefined,
+        fields
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeDependencies(deps) {
+  if (!Array.isArray(deps)) return [];
+  return deps
+    .map((d) => {
+      const name = typeof d === 'string' ? d : d?.name;
+      if (!name) return null;
+      return {
+        name: String(name).trim(),
+        version: d?.version ? String(d.version).trim() : undefined,
+        reason: typeof d.reason === 'string' ? d.reason.trim() : undefined
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeNonFunctional(nf) {
+  if (Array.isArray(nf)) {
+    return nf
+      .map((item) => {
+        if (typeof item === 'string' && item.trim()) {
+          return { area: 'geral', requirement: item.trim() };
+        }
+        if (item?.requirement) {
+          return {
+            area: String(item.area || 'geral').trim(),
+            requirement: String(item.requirement).trim()
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+  if (nf && typeof nf === 'object') {
+    return Object.entries(nf)
+      .map(([area, requirement]) => {
+        if (!requirement) return null;
+        return {
+          area: String(area).trim(),
+          requirement: String(requirement).trim()
+        };
+      })
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Normaliza o plano arquitetural completo (schema enriquecido + retrocompatível).
+ */
+function normalizePlan(plan) {
+  if (!plan || typeof plan !== 'object') {
+    return structuredClone(EMPTY_PLAN);
+  }
+  const normalized = {
+    files: normalizeFiles(plan.files),
+    adrs: normalizeAdrs(plan.adrs),
+    apiContracts: normalizeApiContracts(plan.apiContracts),
+    dataModels: normalizeDataModels(plan.dataModels),
+    dependencies: normalizeDependencies(plan.dependencies),
+    nonFunctional: normalizeNonFunctional(plan.nonFunctional)
+  };
+  if (plan.seniorReview && typeof plan.seniorReview === 'object') {
+    normalized.seniorReview = plan.seniorReview;
+  }
+  return normalized;
+}
+
+function mergeByKey(existing, incoming, keyFn) {
+  const map = new Map();
+  for (const item of existing || []) {
+    map.set(keyFn(item), item);
+  }
+  for (const item of incoming || []) {
+    map.set(keyFn(item), { ...(map.get(keyFn(item)) || {}), ...item });
+  }
+  return [...map.values()];
+}
+
+/**
+ * Mescla emendas da revisão sênior sem duplicar entradas.
+ */
+function mergePlanAmendments(plan, amendments) {
+  if (!amendments || typeof amendments !== 'object') return plan;
+  const base = normalizePlan(plan);
+  return normalizePlan({
+    ...base,
+    files: mergeByKey(base.files, amendments.files, (f) => f.path),
+    adrs: mergeByKey(base.adrs, amendments.adrs, (a) => a.id),
+    apiContracts: mergeByKey(
+      base.apiContracts,
+      amendments.apiContracts,
+      (c) => `${c.method} ${c.path}`
+    ),
+    dataModels: mergeByKey(base.dataModels, amendments.dataModels, (m) => m.name),
+    dependencies: mergeByKey(base.dependencies, amendments.dependencies, (d) => d.name),
+    nonFunctional: mergeByKey(
+      base.nonFunctional,
+      normalizeNonFunctional(amendments.nonFunctional),
+      (n) => `${n.area}:${n.requirement}`
+    )
+  });
+}
+
+function formatJsonBlock(label, value) {
+  if (value == null) return '';
+  const text =
+    typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  if (!text || text === '[]' || text === '{}') return '';
+  return `\n${label}:\n${text}`;
+}
+
+/**
+ * Handoff explícito para o Codificador — ADRs, contratos, modelos e NFRs.
+ */
+function buildCoderHandoff(plan) {
+  const p = normalizePlan(plan);
+  const sections = [
+    'CONTEXTO ARQUITETURAL APROVADO (obrigatório seguir):',
+    '',
+    `Arquivos planejados (${p.files.length}):`,
+    JSON.stringify(
+      p.files.map(({ name, path: filePath, purpose }) =>
+        purpose ? { name, path: filePath, purpose } : { name, path: filePath }
+      ),
+      null,
+      2
+    )
+  ];
+
+  if (p.adrs.length) {
+    sections.push('', `ADRs (${p.adrs.length}) — implemente conforme as decisões:`);
+    sections.push(JSON.stringify(p.adrs, null, 2));
+  }
+  if (p.apiContracts.length) {
+    sections.push('', `Contratos de API (${p.apiContracts.length}) — rotas, métodos e payloads:`);
+    sections.push(JSON.stringify(p.apiContracts, null, 2));
+  }
+  if (p.dataModels.length) {
+    sections.push('', `Modelos de dados (${p.dataModels.length}):`);
+    sections.push(JSON.stringify(p.dataModels, null, 2));
+  }
+  if (p.dependencies.length) {
+    sections.push('', `Dependências aprovadas (${p.dependencies.length}):`);
+    sections.push(JSON.stringify(p.dependencies, null, 2));
+  }
+  if (p.nonFunctional.length) {
+    sections.push('', `Requisitos não-funcionais (${p.nonFunctional.length}):`);
+    sections.push(JSON.stringify(p.nonFunctional, null, 2));
+  }
+  if (p.seniorReview?.summary) {
+    sections.push('', 'Notas da revisão arquitetural sênior:');
+    sections.push(String(p.seniorReview.summary));
+    if (Array.isArray(p.seniorReview.risks) && p.seniorReview.risks.length) {
+      sections.push('', 'Riscos a mitigar na implementação:');
+      sections.push(p.seniorReview.risks.map((r) => `- ${r}`).join('\n'));
+    }
+  }
+
+  sections.push(
+    '',
+    'Implemente EXATAMENTE esta arquitetura. Não invente rotas, modelos ou dependências fora do plano sem necessidade.'
+  );
+  return sections.join('\n');
+}
+
+function summarizePlan(plan) {
+  const p = normalizePlan(plan);
+  const parts = [`${p.files.length} arquivos`, `${p.adrs.length} ADRs`];
+  if (p.apiContracts.length) parts.push(`${p.apiContracts.length} contratos API`);
+  if (p.dataModels.length) parts.push(`${p.dataModels.length} modelos de dados`);
+  if (p.dependencies.length) parts.push(`${p.dependencies.length} dependências`);
+  if (p.nonFunctional.length) parts.push(`${p.nonFunctional.length} NFRs`);
+  return parts.join(', ');
+}
+
+module.exports = {
+  EMPTY_PLAN,
+  normalizePlan,
+  mergePlanAmendments,
+  buildCoderHandoff,
+  summarizePlan
+};

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { composeSystemPrompt, announceThinking, loadStyleRules } = require('../lib/seniorEngineer');
+const { buildCoderHandoff } = require('../lib/architectPlan');
 
 // Códigos fonte offline de altíssima qualidade (mock funcional e seguro)
 const MOCK_CODES = {
@@ -344,10 +345,11 @@ module.exports = {
     const styleRules = loadStyleRules(runConfig);
     orchestrator.log('coder', `Aplicando ${styleRules.length} regras de engenharia sênior.`, 'info');
 
+    const handoff = buildCoderHandoff(plan);
     const system = composeSystemPrompt(
       'coder',
-      `Implemente TODOS os arquivos planejados com conteúdo completo, seguro e executável.
-Arquivos planejados: ${JSON.stringify(plan.files)}.
+      `Implemente TODOS os arquivos do plano arquitetural aprovado com conteúdo completo, seguro e executável.
+Respeite ADRs, contratos de API, modelos de dados, dependências e NFRs do handoff — não improvise fora do plano.
 Siga o CHECKLIST DE PRODUÇÃO da constituição à risca — cada item que você pular aqui vira uma
 volta a mais em QA/Segurança/Curador depois, com o mesmo diagnóstico batendo de novo. É mais
 barato acertar agora do que corrigir em 3 ciclos de cura.
@@ -360,7 +362,12 @@ Nunca grave segredos de produção no código; use process.env.`,
     try {
       const result = await generateJson({
         system,
-        user: 'Requisito: ' + prompt + '\nCrie todos os arquivos planejados com conteúdo completo de nível produção.',
+        user:
+          'Requisito: ' +
+          prompt +
+          '\n\n' +
+          handoff +
+          '\n\nCrie todos os arquivos planejados com conteúdo completo de nível produção.',
         runConfig,
         signal: orchestrator.getSignal()
       });
