@@ -145,6 +145,10 @@ export const api = {
         userFixInvokedRate: number | null;
         avgTestPassRate: number | null;
         humanPassedRate: number | null;
+        preflightPassRate: number | null;
+        avgPreflightFixAttempts: number | null;
+        forceQaRate: number | null;
+        preflightQaParityRate: number | null;
       }>('/api/runs/stats/reliability')
   },
   ops: {

@@ -67,4 +67,50 @@ describe('runs.reliabilityStats (ADR-012)', () => {
     assert.equal(stats.avgTestPassRate, (4 / 4 + 2 / 4) / 2);
     assert.equal(stats.humanPassedRate, 0.5);
   });
+
+  it('agrega métricas de preflight quando presentes', () => {
+    const { runs } = fresh('../lib/db');
+
+    const a = runs.create({ prompt: 'preflight ok', config: {} });
+    runs.update(a.id, {
+      reliability: {
+        healingAttempts: 0,
+        userFixInvoked: false,
+        testsTotal: 4,
+        testsPassed: 4,
+        testsFailed: 0,
+        securityIssuesFinal: 0,
+        humanPassed: true,
+        preflightPassed: true,
+        preflightFixAttempts: 0,
+        forceQaUsed: false,
+        preflightQaAligned: true,
+        finishedWithoutIntervention: true
+      }
+    });
+
+    const b = runs.create({ prompt: 'force qa', config: {} });
+    runs.update(b.id, {
+      reliability: {
+        healingAttempts: 0,
+        userFixInvoked: false,
+        testsTotal: 4,
+        testsPassed: 2,
+        testsFailed: 2,
+        securityIssuesFinal: 0,
+        humanPassed: true,
+        preflightPassed: false,
+        preflightFixAttempts: 2,
+        forceQaUsed: true,
+        preflightQaAligned: false,
+        finishedWithoutIntervention: false
+      }
+    });
+
+    const stats = runs.reliabilityStats();
+    assert.equal(stats.preflightPassRate, 0.5);
+    assert.equal(stats.avgPreflightFixAttempts, 1);
+    assert.equal(stats.forceQaRate, 0.5);
+    assert.equal(stats.preflightQaParityRate, 0.5);
+  });
 });

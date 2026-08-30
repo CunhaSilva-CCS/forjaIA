@@ -56,4 +56,45 @@ describe('computeReliability (ADR-012)', () => {
     });
     assert.equal(r.finishedWithoutIntervention, false);
   });
+
+  it('preflight reprovado ou forceQa bloqueia finishedWithoutIntervention', () => {
+    const base = {
+      summary: { testsTotal: 2, testsPassed: 2, testsFailed: 0, securityIssues: 0, humanPassed: true }
+    };
+    assert.equal(
+      computeReliability({ ...base, preflightPassed: false, preflightFixAttempts: 0 }).finishedWithoutIntervention,
+      false
+    );
+    assert.equal(
+      computeReliability({ ...base, preflightPassed: true, forceQaUsed: true }).finishedWithoutIntervention,
+      false
+    );
+    assert.equal(
+      computeReliability({ ...base, preflightPassed: true, preflightFixAttempts: 1 }).finishedWithoutIntervention,
+      false
+    );
+  });
+
+  it('preflightQaAligned compara resultado preflight vs QA', () => {
+    const aligned = computeReliability({
+      preflightPassed: true,
+      summary: { testsTotal: 2, testsPassed: 2, testsFailed: 0, securityIssues: 0, humanPassed: true }
+    });
+    assert.equal(aligned.preflightQaAligned, true);
+
+    const regression = computeReliability({
+      preflightPassed: true,
+      summary: { testsTotal: 2, testsPassed: 1, testsFailed: 1, securityIssues: 0, humanPassed: true }
+    });
+    assert.equal(regression.preflightQaAligned, false);
+  });
+
+  it('modo validate sem preflight não altera métricas de preflight', () => {
+    const r = computeReliability({
+      summary: { testsTotal: 2, testsPassed: 2, testsFailed: 0, securityIssues: 0, humanPassed: true }
+    });
+    assert.equal(r.preflightPassed, null);
+    assert.equal(r.preflightQaAligned, null);
+    assert.equal(r.finishedWithoutIntervention, true);
+  });
 });

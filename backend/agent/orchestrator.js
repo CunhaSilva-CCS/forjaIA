@@ -61,6 +61,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.forceQaUsed = false;
     this.maxHealingAttempts = 3;
     // Achado real (auditoria funcional ao vivo): userFix.js retentava indefinidamente com o
     // MESMO provedor sem nunca escalar — vi 4 falhas seguidas em Ollama local antes de acertar
@@ -325,6 +326,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.forceQaUsed = false;
     this.userFixAttempts = 0;
     this.createAbortController();
 
@@ -460,6 +462,7 @@ class Orchestrator extends EventEmitter {
       throw err;
     }
     if (nextStage === 'qa' && customConfig.forceQa && this.currentTask.preflightReport?.passed === false) {
+      this.forceQaUsed = true;
       this.log(
         'orchestrator',
         'QA aprovado com forceQa apesar de preflight reprovado — risco de falhas na suíte.',
@@ -734,6 +737,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.forceQaUsed = false;
     this.userFixAttempts = 0;
     this.createAbortController();
 
@@ -875,10 +879,14 @@ class Orchestrator extends EventEmitter {
       this.currentTask.reportPdfPath = pdfPath;
 
       const { computeReliability } = require('../lib/reliability');
+      const preflight = this.currentTask.preflightReport;
       const reliability = computeReliability({
         healingAttempts: this.healingAttempts,
         userFixInvoked: this.userFixInvoked,
-        summary: model.summary
+        summary: model.summary,
+        preflightPassed: preflight ? preflight.passed : null,
+        preflightFixAttempts: this.currentTask.preflightFixAttempts ?? null,
+        forceQaUsed: this.forceQaUsed
       });
       this.currentTask.reliability = reliability;
       this.persistTask({ reliability });

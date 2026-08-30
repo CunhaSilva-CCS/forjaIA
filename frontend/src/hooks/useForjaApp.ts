@@ -121,6 +121,10 @@ export function useForjaApp() {
     userFixInvokedRate: number | null;
     avgTestPassRate: number | null;
     humanPassedRate: number | null;
+    preflightPassRate: number | null;
+    avgPreflightFixAttempts: number | null;
+    forceQaRate: number | null;
+    preflightQaParityRate: number | null;
   } | null>(null);
   const [reliabilityLoading, setReliabilityLoading] = useState(false);
   const [llmUsage, setLlmUsage] = useState<{

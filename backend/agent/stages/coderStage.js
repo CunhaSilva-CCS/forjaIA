@@ -8,7 +8,7 @@ async function run(orchestrator, runConfig) {
   orchestrator.throwIfAborted();
 
   const { runPreflightPipeline } = require('../../lib/preflightPipeline');
-  const { files, preflight } = await runPreflightPipeline({
+  const { files, preflight, fixAttempts } = await runPreflightPipeline({
     files: codeOutput.files,
     plan: orchestrator.savedPlan,
     prompt: orchestrator.savedPrompt,
@@ -21,6 +21,7 @@ async function run(orchestrator, runConfig) {
   orchestrator.saveFileVersions(files);
   orchestrator.persistTask({ files });
   orchestrator.currentTask.preflightReport = preflight;
+  orchestrator.currentTask.preflightFixAttempts = fixAttempts;
   orchestrator.currentTask.coderSeniorReview = codeOutput.seniorReview || null;
   orchestrator.currentTask.preflightRequired = true;
 
