@@ -1,5 +1,5 @@
 import { API_BASE, getStoredToken } from '../config';
-import type { ADR, ArchitectPlan, AuditRun, DogfoodStatus, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
+import type { ArchitectPlan, AuditRun, DogfoodStatus, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
 
 interface RunQueuedResponse {
   queued?: boolean;

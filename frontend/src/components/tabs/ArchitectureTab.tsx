@@ -1,5 +1,5 @@
 import type { AppState } from '../../hooks/useForjaApp';
-import type { ApiContract, DataModel, NonFunctionalRequirement, PlanDependency, TestScenario } from '../../types/agent';
+import type { ApiContract, DataModel, NonFunctionalRequirement, TestScenario } from '../../types/agent';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 const EXPECT_OPTIONS = ['none', 'list', 'object-id', 'token'] as const;
