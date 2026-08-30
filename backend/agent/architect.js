@@ -182,8 +182,21 @@ Retorne APENAS JSON estrito:
   "apiContracts": [{"method": "GET|POST|PUT|PATCH|DELETE", "path": "/api/...", "description": "...", "auth": false|"Bearer ...", "request": {}, "response": {}}],
   "dataModels": [{"name": "Entity", "description": "...", "fields": [{"name": "id", "type": "string", "required": true}]}],
   "dependencies": [{"name": "express", "version": "^4.x", "reason": "..."}],
-  "nonFunctional": [{"area": "segurança|observabilidade|performance", "requirement": "..."}]
-}`;
+  "nonFunctional": [{"area": "segurança|observabilidade|performance", "requirement": "..."}],
+  "testScenarios": [
+    {
+      "name": "nome do caso",
+      "method": "GET|POST|PUT|PATCH|DELETE",
+      "path": "/api/... ou /health",
+      "body": {} ou null,
+      "auth": true ou false,
+      "expectedStatus": "2xx|4xx|200|201|401",
+      "expect": "none|list|object-id|token|field:nome=valor",
+      "captureAs": "variavelOpcional"
+    }
+  ]
+}
+Gere testScenarios executáveis (mín. 3) alinhados aos apiContracts — o QA rodará estes casos literalmente.`;
 
 const ARCHITECT_REVIEW_CONTRACT = `Revise o plano arquitetural como arquiteto sênior.
 Verifique: fronteiras claras, contratos API coerentes com os ADRs, modelo de dados mínimo,
@@ -199,7 +212,8 @@ Retorne APENAS JSON:
     "apiContracts": [{"method": "GET", "path": "/api/...", "description": "...", "auth": false, "request": {}, "response": {}}],
     "dataModels": [{"name": "...", "fields": [{"name": "...", "type": "string", "required": true}]}],
     "dependencies": [{"name": "...", "version": "^x", "reason": "..."}],
-    "nonFunctional": [{"area": "segurança", "requirement": "..."}]
+    "nonFunctional": [{"area": "segurança", "requirement": "..."}],
+    "testScenarios": [{"name": "...", "method": "GET", "path": "/health", "expectedStatus": "200", "expect": "none"}]
   }
 }
 Inclua em planAmendments SOMENTE itens novos ou correções — não repita o plano inteiro.`;

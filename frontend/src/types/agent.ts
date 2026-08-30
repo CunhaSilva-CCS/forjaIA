@@ -54,6 +54,17 @@ export interface NonFunctionalRequirement {
   requirement: string;
 }
 
+export interface TestScenario {
+  name: string;
+  method: string;
+  path: string;
+  body?: unknown;
+  auth?: boolean;
+  expectedStatus?: string;
+  expect?: string;
+  captureAs?: string;
+}
+
 export interface ArchitectSeniorReview {
   verdict?: string;
   summary?: string;
@@ -67,6 +78,7 @@ export interface ArchitectPlan {
   dataModels: DataModel[];
   dependencies: PlanDependency[];
   nonFunctional: NonFunctionalRequirement[];
+  testScenarios: TestScenario[];
   seniorReview?: ArchitectSeniorReview;
 }
 

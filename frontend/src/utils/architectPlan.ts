@@ -5,7 +5,8 @@ import type {
   ArchitectSeniorReview,
   DataModel,
   NonFunctionalRequirement,
-  PlanDependency
+  PlanDependency,
+  TestScenario
 } from '../types/agent';
 
 export const EMPTY_ARCHITECT_PLAN: ArchitectPlan = {
@@ -14,7 +15,8 @@ export const EMPTY_ARCHITECT_PLAN: ArchitectPlan = {
   apiContracts: [],
   dataModels: [],
   dependencies: [],
-  nonFunctional: []
+  nonFunctional: [],
+  testScenarios: []
 };
 
 function asArray<T>(value: unknown): T[] {
@@ -33,6 +35,7 @@ export function normalizeArchitectPlan(raw: unknown, fallback?: { adrs?: ADR[]; 
     dataModels: asArray<DataModel>(src.dataModels),
     dependencies: asArray<PlanDependency>(src.dependencies),
     nonFunctional: asArray<NonFunctionalRequirement>(src.nonFunctional),
+    testScenarios: asArray<TestScenario>(src.testScenarios),
     seniorReview:
       src.seniorReview && typeof src.seniorReview === 'object'
         ? (src.seniorReview as ArchitectSeniorReview)
@@ -47,6 +50,7 @@ export function buildPlanPatch(input: {
   dataModels: DataModel[];
   dependencies: PlanDependency[];
   nonFunctional: NonFunctionalRequirement[];
+  testScenarios: TestScenario[];
   seniorReview?: ArchitectSeniorReview;
 }): ArchitectPlan {
   return normalizeArchitectPlan({
@@ -60,6 +64,7 @@ export function buildPlanPatch(input: {
     dataModels: input.dataModels,
     dependencies: input.dependencies,
     nonFunctional: input.nonFunctional,
+    testScenarios: input.testScenarios,
     seniorReview: input.seniorReview
   });
 }
@@ -70,6 +75,7 @@ export function planHasArchitectureDetails(plan: ArchitectPlan): boolean {
     plan.dataModels.length > 0 ||
     plan.dependencies.length > 0 ||
     plan.nonFunctional.length > 0 ||
+    plan.testScenarios.length > 0 ||
     Boolean(plan.seniorReview?.summary)
   );
 }

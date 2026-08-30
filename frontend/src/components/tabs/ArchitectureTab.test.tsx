@@ -22,10 +22,15 @@ describe('architectPlan utils', () => {
       apiContracts: [{ method: 'POST', path: '/api/login', description: 'login' }],
       dataModels: [{ name: 'User', fields: [{ name: 'email', type: 'string', required: true }] }],
       dependencies: [{ name: 'express', version: '^4', reason: 'HTTP' }],
-      nonFunctional: [{ area: 'segurança', requirement: 'rate limit' }]
+      nonFunctional: [{ area: 'segurança', requirement: 'rate limit' }],
+      testScenarios: [
+        { name: 'Health', method: 'GET', path: '/health', expectedStatus: '200', expect: 'none' },
+        { name: 'Login', method: 'POST', path: '/api/login', expectedStatus: '200', expect: 'token' }
+      ]
     });
     expect(patch.files[0].purpose).toBe('HTTP');
     expect(patch.apiContracts).toHaveLength(1);
+    expect(patch.testScenarios).toHaveLength(2);
     expect(planHasArchitectureDetails(patch)).toBe(true);
   });
 });

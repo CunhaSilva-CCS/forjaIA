@@ -31,6 +31,7 @@ import type {
   TeamBoard,
   TeamInfo,
   TestItem,
+  TestScenario,
   TokenStats,
   WorkspaceTab,
   DeployEnvironment
@@ -77,6 +78,7 @@ export function useForjaApp() {
   const [dataModels, setDataModels] = useState<DataModel[]>([]);
   const [planDependencies, setPlanDependencies] = useState<PlanDependency[]>([]);
   const [nonFunctional, setNonFunctional] = useState<NonFunctionalRequirement[]>([]);
+  const [testScenarios, setTestScenarios] = useState<TestScenario[]>([]);
   const [architectSeniorReview, setArchitectSeniorReview] = useState<ArchitectSeniorReview | null>(null);
   const [tests, setTests] = useState<TestItem[]>([]);
   const [securityIssues, setSecurityIssues] = useState<SecurityIssue[]>([]);
@@ -194,6 +196,7 @@ export function useForjaApp() {
       setDataModels(plan.dataModels);
       setPlanDependencies(plan.dependencies);
       setNonFunctional(plan.nonFunctional);
+      setTestScenarios(plan.testScenarios);
       setArchitectSeniorReview(plan.seniorReview || null);
       if (plan.adrs.length) setAdrs(plan.adrs);
       if (plan.files.length) {
@@ -218,6 +221,7 @@ export function useForjaApp() {
     setDataModels([]);
     setPlanDependencies([]);
     setNonFunctional([]);
+    setTestScenarios([]);
     setArchitectSeniorReview(null);
   }, []);
 
@@ -785,6 +789,7 @@ export function useForjaApp() {
               dataModels,
               dependencies: planDependencies,
               nonFunctional,
+              testScenarios,
               seniorReview: architectSeniorReview || undefined
             })
           : undefined;
@@ -990,6 +995,8 @@ export function useForjaApp() {
     setPlanDependencies,
     nonFunctional,
     setNonFunctional,
+    testScenarios,
+    setTestScenarios,
     architectSeniorReview,
     tests,
     securityIssues,

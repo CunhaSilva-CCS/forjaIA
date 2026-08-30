@@ -1,7 +1,8 @@
 import type { AppState } from '../../hooks/useForjaApp';
-import type { ApiContract, DataModel, NonFunctionalRequirement, PlanDependency } from '../../types/agent';
+import type { ApiContract, DataModel, NonFunctionalRequirement, PlanDependency, TestScenario } from '../../types/agent';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+const EXPECT_OPTIONS = ['none', 'list', 'object-id', 'token'] as const;
 
 function canEditPlan(s: AppState): boolean {
   return s.taskStatus === 'awaiting_approval' && s.pendingNextStage === 'coder';
@@ -29,7 +30,8 @@ export function ArchitectureTab({ s }: { s: AppState }) {
     <div className="cards-stack">
       {editable && (
         <p className="muted">
-          Revise contratos de API, modelos de dados, dependências e NFRs antes de aprovar a codificação.
+          Revise contratos, cenários de teste (o QA executa literalmente), dependências e NFRs antes de aprovar a
+          codificação.
         </p>
       )}
 
@@ -51,6 +53,53 @@ export function ArchitectureTab({ s }: { s: AppState }) {
           ) : null}
         </div>
       )}
+
+      <section>
+        <div className="panel-head-row">
+          <h4 style={{ margin: 0 }}>Cenários de teste (QA)</h4>
+          {editable && (
+            <button
+              type="button"
+              className="btn-tiny"
+              onClick={() =>
+                s.setTestScenarios([
+                  ...s.testScenarios,
+                  {
+                    name: 'Novo cenário',
+                    method: 'GET',
+                    path: '/health',
+                    expectedStatus: '200',
+                    expect: 'none',
+                    auth: false
+                  }
+                ])
+              }
+            >
+              + cenário
+            </button>
+          )}
+        </div>
+        {s.testScenarios.map((scenario, idx) => (
+          <TestScenarioCard
+            key={`${scenario.method}-${scenario.path}-${idx}`}
+            scenario={scenario}
+            editable={editable}
+            onChange={(next) => {
+              const copy = [...s.testScenarios];
+              copy[idx] = next;
+              s.setTestScenarios(copy);
+            }}
+            onRemove={
+              editable
+                ? () => s.setTestScenarios(s.testScenarios.filter((_, i) => i !== idx))
+                : undefined
+            }
+          />
+        ))}
+        {s.testScenarios.length === 0 && (
+          <p className="muted">Nenhum cenário — o backend derivará casos mínimos dos contratos de API.</p>
+        )}
+      </section>
 
       <section>
         <div className="panel-head-row">
@@ -232,6 +281,106 @@ export function ArchitectureTab({ s }: { s: AppState }) {
         ))}
         {s.nonFunctional.length === 0 && <p className="muted">Nenhum NFR documentado.</p>}
       </section>
+    </div>
+  );
+}
+
+function TestScenarioCard({
+  scenario,
+  editable,
+  onChange,
+  onRemove
+}: {
+  scenario: TestScenario;
+  editable: boolean;
+  onChange: (next: TestScenario) => void;
+  onRemove?: () => void;
+}) {
+  return (
+    <div className="issue-card">
+      <input
+        value={scenario.name}
+        disabled={!editable}
+        placeholder="Nome do cenário"
+        onChange={(e) => onChange({ ...scenario, name: e.target.value })}
+        style={{ width: '100%', fontWeight: 600, marginBottom: 8 }}
+      />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <select
+          value={scenario.method}
+          disabled={!editable}
+          onChange={(e) => onChange({ ...scenario, method: e.target.value })}
+          aria-label="Método HTTP do cenário"
+        >
+          {HTTP_METHODS.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <input
+          value={scenario.path}
+          disabled={!editable}
+          placeholder="/api/rota"
+          onChange={(e) => onChange({ ...scenario, path: e.target.value })}
+          style={{ flex: 1, minWidth: 160 }}
+        />
+        <input
+          value={scenario.expectedStatus || '2xx'}
+          disabled={!editable}
+          placeholder="expectedStatus"
+          onChange={(e) => onChange({ ...scenario, expectedStatus: e.target.value })}
+          style={{ width: 72 }}
+        />
+        <select
+          value={scenario.expect || 'none'}
+          disabled={!editable}
+          onChange={(e) => onChange({ ...scenario, expect: e.target.value })}
+          aria-label="Expectativa do corpo"
+        >
+          {EXPECT_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input
+            type="checkbox"
+            checked={Boolean(scenario.auth)}
+            disabled={!editable}
+            onChange={(e) => onChange({ ...scenario, auth: e.target.checked })}
+          />
+          auth
+        </label>
+      </div>
+      <label className="muted">Body (JSON, opcional)</label>
+      <textarea
+        defaultValue={jsonField(scenario.body)}
+        disabled={!editable}
+        rows={2}
+        style={{ width: '100%', marginBottom: 8 }}
+        onBlur={(e) => {
+          if (!editable) return;
+          try {
+            onChange({ ...scenario, body: parseJsonField(e.target.value) });
+          } catch {
+            // mantém anterior
+          }
+        }}
+      />
+      <input
+        value={scenario.captureAs || ''}
+        disabled={!editable}
+        placeholder="captureAs (opcional)"
+        onChange={(e) => onChange({ ...scenario, captureAs: e.target.value || undefined })}
+        style={{ width: '100%' }}
+      />
+      {onRemove && (
+        <button type="button" className="btn-tiny" style={{ marginTop: 8 }} onClick={onRemove}>
+          Remover
+        </button>
+      )}
     </div>
   );
 }
