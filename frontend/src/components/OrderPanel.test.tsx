@@ -26,6 +26,12 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     handleValidateExisting: vi.fn(),
     handleCancel: vi.fn(),
     resetWorkspace: vi.fn(),
+    pendingNextStage: null,
+    preflightReport: null,
+    forceQa: false,
+    setForceQa: vi.fn(),
+    qaPreflightBlocked: false,
+    canApproveQa: true,
     currentRunId: null,
     deployUrl: null,
     files: [],
@@ -89,5 +95,53 @@ describe('OrderPanel', () => {
   it('campo de orçamento fica vazio (sem teto) por padrão, sem quebrar', () => {
     render(<OrderPanel s={makeState()} />);
     expect(screen.getByLabelText('Orçamento (USD, opcional)')).toHaveValue(null);
+  });
+
+  it('bloqueia aprovação para QA quando preflight reprovado', () => {
+    render(
+      <OrderPanel
+        s={makeState({
+          taskStatus: 'awaiting_approval',
+          pendingNextStage: 'qa',
+          approveButtonLabel: 'Preflight reprovado — QA bloqueado',
+          preflightReport: {
+            passed: false,
+            tests: [{ name: 'health', passed: false, error: 'timeout' }]
+          },
+          qaPreflightBlocked: true,
+          canApproveQa: false
+        })}
+      />
+    );
+    expect(screen.getByRole('button', { name: /preflight reprovado/i })).toBeDisabled();
+    expect(screen.getByLabelText(/forçar qa/i)).toBeInTheDocument();
+  });
+
+  it('permite aprovar QA com forceQa marcado', async () => {
+    const handleApprove = vi.fn();
+    const setForceQa = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <OrderPanel
+        s={makeState({
+          taskStatus: 'awaiting_approval',
+          pendingNextStage: 'qa',
+          approveButtonLabel: 'Aprovar QA',
+          preflightReport: {
+            passed: false,
+            tests: [{ name: 'health', passed: false }]
+          },
+          qaPreflightBlocked: true,
+          canApproveQa: true,
+          forceQa: true,
+          setForceQa,
+          handleApprove
+        })}
+      />
+    );
+    const approveBtn = screen.getByRole('button', { name: /aprovar qa/i });
+    expect(approveBtn).not.toBeDisabled();
+    await user.click(approveBtn);
+    expect(handleApprove).toHaveBeenCalledTimes(1);
   });
 });

@@ -447,6 +447,26 @@ class Orchestrator extends EventEmitter {
       throw new Error(`Etapa pendente inválida: ${nextStage}`);
     }
 
+    if (
+      nextStage === 'qa' &&
+      this.currentTask.preflightReport &&
+      this.currentTask.preflightReport.passed === false &&
+      !customConfig.forceQa
+    ) {
+      const err = new Error(
+        'Preflight reprovado — QA bloqueado (fail-closed). Corrija o código ou envie forceQa: true na aprovação.'
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (nextStage === 'qa' && customConfig.forceQa && this.currentTask.preflightReport?.passed === false) {
+      this.log(
+        'orchestrator',
+        'QA aprovado com forceQa apesar de preflight reprovado — risco de falhas na suíte.',
+        'warning'
+      );
+    }
+
     const { assertCanApprove } = require('../lib/rbac');
     assertCanApprove(member || { role: 'admin', isAdmin: true }, nextStage);
     this.log(

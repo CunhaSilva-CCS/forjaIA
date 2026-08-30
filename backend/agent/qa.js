@@ -432,6 +432,41 @@ async function runMobileSuite(files, runConfig, orchestrator) {
   return runNativeTestSuite(projectDir, orchestrator);
 }
 
+function logPreflightQaParity(orchestrator, qaReport) {
+  const preflight = orchestrator.currentTask?.preflightReport;
+  if (!preflight?.tests?.length) return;
+
+  const pfOk = preflight.tests.filter((t) => t.passed).length;
+  const pfTotal = preflight.tests.length;
+  const qaOk = qaReport.tests.filter((t) => t.passed).length;
+  const qaTotal = qaReport.tests.length;
+  const aligned = preflight.passed === qaReport.passed;
+
+  orchestrator.log(
+    'qa',
+    `Paridade preflight↔QA: ${pfOk}/${pfTotal} → ${qaOk}/${qaTotal}`,
+    aligned ? 'info' : 'warning'
+  );
+
+  if (!aligned) {
+    const pfFail = preflight.tests.filter((t) => !t.passed).map((t) => t.name);
+    const qaFail = qaReport.tests.filter((t) => !t.passed).map((t) => t.name);
+    if (pfFail.length) {
+      orchestrator.log('qa', `Falhas no preflight: ${pfFail.join(', ')}`, 'warning');
+    }
+    if (qaFail.length) {
+      orchestrator.log('qa', `Falhas na QA formal: ${qaFail.join(', ')}`, 'warning');
+    }
+    if (preflight.passed && !qaReport.passed) {
+      orchestrator.log(
+        'qa',
+        'Regressão detectada: preflight passou mas QA formal falhou — investigar flakiness ou diferença de ambiente.',
+        'warning'
+      );
+    }
+  }
+}
+
 module.exports = {
   execute: async (files, config, orchestrator) => {
     const { announceThinking, thinkAsSenior } = require('../lib/seniorEngineer');
@@ -470,6 +505,7 @@ module.exports = {
         );
         report = await runGeneratedTests({ cases: planCases }, sandboxInfo.baseUrl, orchestrator);
         suite = 'plan-approved';
+        logPreflightQaParity(orchestrator, report);
       } else {
         let dynamicPlan = null;
         try {

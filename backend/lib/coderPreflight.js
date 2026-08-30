@@ -1,6 +1,7 @@
 const { detectProjectType } = require('./projectType');
 const { getPlanTestCases } = require('./architectPlan');
 const { runGeneratedTests } = require('./testPlanRunner');
+const { checkPlanContractAlignment, checkImports } = require('./contractChecker');
 
 const HEALTH_PROBES = ['/health', '/api/health', '/'];
 
@@ -46,6 +47,25 @@ async function runCoderPreflight(files, plan, orchestrator) {
   });
   if (!pkg.passed) {
     orchestrator.log(agent, `Preflight reprovado: ${pkg.error}`, 'warning');
+    return { passed: false, tests, suite: 'preflight-static' };
+  }
+
+  const imports = checkImports(files);
+  tests.push({
+    name: 'Imports resolvem para arquivos entregues',
+    passed: imports.passed,
+    error: imports.passed ? null : imports.missing.map((m) => `${m.file} → ${m.import}`).join('; ')
+  });
+
+  const alignment = checkPlanContractAlignment(files, plan);
+  tests.push({
+    name: 'Rotas do código cobrem contratos/cenários do plano',
+    passed: alignment.passed,
+    error: alignment.passed ? null : `Ausentes: ${alignment.missing.join(', ')}`
+  });
+
+  if (!imports.passed || !alignment.passed) {
+    orchestrator.log(agent, 'Preflight estático reprovado (imports/rotas).', 'warning');
     return { passed: false, tests, suite: 'preflight-static' };
   }
 

@@ -82,6 +82,7 @@ export function useForjaApp() {
   const [testScenarios, setTestScenarios] = useState<TestScenario[]>([]);
   const [architectSeniorReview, setArchitectSeniorReview] = useState<ArchitectSeniorReview | null>(null);
   const [preflightReport, setPreflightReport] = useState<PreflightReport | null>(null);
+  const [forceQa, setForceQa] = useState(false);
   const [tests, setTests] = useState<TestItem[]>([]);
   const [securityIssues, setSecurityIssues] = useState<SecurityIssue[]>([]);
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
@@ -226,6 +227,7 @@ export function useForjaApp() {
     setTestScenarios([]);
     setArchitectSeniorReview(null);
     setPreflightReport(null);
+    setForceQa(false);
   }, []);
 
   const folderBrowser = useFolderBrowser(targetPath, showToast);
@@ -686,8 +688,16 @@ export function useForjaApp() {
     mode: pipelineMode
   });
 
+  const qaPreflightBlocked =
+    taskStatus === 'awaiting_approval' &&
+    pendingNextStage === 'qa' &&
+    preflightReport?.passed === false;
+  const canApproveQa = !qaPreflightBlocked || forceQa;
+
   const approveButtonLabel =
-    (pendingNextStage && STAGE_BUTTON[pendingNextStage]) || 'Aprovar e Continuar';
+    qaPreflightBlocked && !forceQa
+      ? 'Preflight reprovado — QA bloqueado'
+      : (pendingNextStage && STAGE_BUTTON[pendingNextStage]) || 'Aprovar e Continuar';
 
   const refreshTeamBoard = async () => {
     try {
@@ -803,7 +813,8 @@ export function useForjaApp() {
               seniorReview: architectSeniorReview || undefined
             })
           : undefined;
-      await api.approve(runConfig(), planPatch);
+      const approveConfig = forceQa ? { ...runConfig(), forceQa: true } : runConfig();
+      await api.approve(approveConfig, planPatch);
     } catch (err) {
       setIsExecuting(false);
       setTaskStatus('awaiting_approval');
@@ -1009,6 +1020,10 @@ export function useForjaApp() {
     setTestScenarios,
     architectSeniorReview,
     preflightReport,
+    forceQa,
+    setForceQa,
+    qaPreflightBlocked,
+    canApproveQa,
     tests,
     securityIssues,
     diagnosis,

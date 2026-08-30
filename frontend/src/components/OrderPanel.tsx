@@ -126,10 +126,40 @@ export function OrderPanel({ s }: { s: AppState }) {
                 </li>
               ))}
             </ul>
+            {!s.preflightReport.passed && (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginTop: 10,
+                  fontSize: 13,
+                  cursor: s.isExecuting ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={s.forceQa}
+                  disabled={s.isExecuting}
+                  onChange={(e) => s.setForceQa(e.target.checked)}
+                />
+                Forçar QA (admin) — ignora preflight reprovado
+              </label>
+            )}
           </div>
         )}
         {s.taskStatus === 'awaiting_approval' ? (
-          <button className="btn-primary" onClick={s.handleApprove} disabled={s.isExecuting} style={{ flex: 1 }}>
+          <button
+            className="btn-primary"
+            onClick={s.handleApprove}
+            disabled={s.isExecuting || !s.canApproveQa}
+            style={{ flex: 1 }}
+            title={
+              s.qaPreflightBlocked && !s.forceQa
+                ? 'Preflight reprovado — marque Forçar QA ou corrija o código'
+                : undefined
+            }
+          >
             <Check size={16} /> {s.approveButtonLabel}
           </button>
         ) : (
