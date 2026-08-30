@@ -10,14 +10,20 @@ import type {
   ADR,
   AgentName,
   AgentState,
+  ApiContract,
+  ArchitectPlan,
+  ArchitectSeniorReview,
   AuditRun,
   ChaosEvent,
+  DataModel,
   Diagnosis,
   FileData,
   LlmProvider,
   LogLine,
+  NonFunctionalRequirement,
   PerformanceMetrics,
   PipelineMode,
+  PlanDependency,
   Project,
   RunSummary,
   SecurityIssue,
@@ -29,6 +35,7 @@ import type {
   WorkspaceTab,
   DeployEnvironment
 } from '../types/agent';
+import { buildPlanPatch, normalizeArchitectPlan } from '../utils/architectPlan';
 
 const emptyTokenStats = (): TokenStats => ({
   prompt: 0,
@@ -66,6 +73,11 @@ export function useForjaApp() {
   const [files, setFiles] = useState<FileData[]>([]);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [adrs, setAdrs] = useState<ADR[]>([]);
+  const [apiContracts, setApiContracts] = useState<ApiContract[]>([]);
+  const [dataModels, setDataModels] = useState<DataModel[]>([]);
+  const [planDependencies, setPlanDependencies] = useState<PlanDependency[]>([]);
+  const [nonFunctional, setNonFunctional] = useState<NonFunctionalRequirement[]>([]);
+  const [architectSeniorReview, setArchitectSeniorReview] = useState<ArchitectSeniorReview | null>(null);
   const [tests, setTests] = useState<TestItem[]>([]);
   const [securityIssues, setSecurityIssues] = useState<SecurityIssue[]>([]);
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
@@ -175,6 +187,40 @@ export function useForjaApp() {
     window.setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const applyArchitectPlan = useCallback(
+    (raw: unknown, fallback?: { adrs?: ADR[]; files?: ArchitectPlan['files'] }) => {
+      const plan = normalizeArchitectPlan(raw, fallback);
+      setApiContracts(plan.apiContracts);
+      setDataModels(plan.dataModels);
+      setPlanDependencies(plan.dependencies);
+      setNonFunctional(plan.nonFunctional);
+      setArchitectSeniorReview(plan.seniorReview || null);
+      if (plan.adrs.length) setAdrs(plan.adrs);
+      if (plan.files.length) {
+        setFiles((prev) =>
+          plan.files.map((f) => {
+            const existing = prev.find((p) => p.path === f.path);
+            return {
+              name: f.name,
+              path: f.path,
+              content: existing?.content || ''
+            };
+          })
+        );
+      }
+      return plan;
+    },
+    []
+  );
+
+  const clearArchitectPlan = useCallback(() => {
+    setApiContracts([]);
+    setDataModels([]);
+    setPlanDependencies([]);
+    setNonFunctional([]);
+    setArchitectSeniorReview(null);
+  }, []);
+
   const folderBrowser = useFolderBrowser(targetPath, showToast);
 
   useEffect(() => {
@@ -253,6 +299,7 @@ export function useForjaApp() {
     setHealingAttempts(task.config?.healingAttempts || 0);
     setFiles(task.files || []);
     setAdrs(task.adrs || []);
+    applyArchitectPlan(task.plan, { adrs: task.adrs, files: (task.files || []).map((f) => ({ name: f.name, path: f.path })) });
     setTests(task.tests || []);
     setSecurityIssues(task.securityIssues || []);
     setDiagnosis(task.diagnosis || task.config?.lastDiagnosis || null);
@@ -290,7 +337,7 @@ export function useForjaApp() {
     } else {
       setSelectedFilePath(null);
     }
-  }, [projects]);
+  }, [projects, applyArchitectPlan]);
 
   const handleWsMessage = useCallback(
     (event: string, data: unknown) => {
@@ -351,6 +398,7 @@ export function useForjaApp() {
           const seededAdrs = Array.isArray(payload.adrs) ? payload.adrs : [];
           setFiles(seededFiles);
           setAdrs(seededAdrs);
+          clearArchitectPlan();
           setTests([]);
           setSecurityIssues([]);
           setDiagnosis(null);
@@ -390,10 +438,10 @@ export function useForjaApp() {
           setActiveAgent(null);
           setAgentStates((prev) => ({ ...prev, [payload.agent]: payload.status }));
           if (payload.agent === 'architect' && payload.status !== 'skipped' && payload.data) {
-            const plan = payload.data as { adrs?: ADR[]; files?: Array<{ name: string; path: string }> };
-            setAdrs(plan.adrs || []);
-            setFiles((plan.files || []).map((f) => ({ name: f.name, path: f.path, content: '' })));
+            applyArchitectPlan(payload.data);
+            const plan = normalizeArchitectPlan(payload.data);
             if (plan.files?.[0]) setSelectedFilePath(plan.files[0].path);
+            setCurrentTab('architecture');
           }
           if (payload.agent === 'coder' && payload.status !== 'skipped' && payload.data) {
             const codeOutput = payload.data as { files?: FileData[] };
@@ -431,6 +479,9 @@ export function useForjaApp() {
           setApprovalMessage(payload.approvalMessage || null);
           setActiveAgent(null);
           applyTask(payload);
+          if (payload.pendingNextStage === 'coder') {
+            setCurrentTab('architecture');
+          }
           setAgentStates((prev) => {
             const derived = deriveAgentStates(payload);
             return { ...prev, ...derived, devops: payload.deployUrl ? 'success' : prev.devops };
@@ -488,7 +539,7 @@ export function useForjaApp() {
         }
       }
     },
-    [applyTask, showToast]
+    [applyTask, applyArchitectPlan, showToast]
   );
 
   useEffect(() => {
@@ -727,7 +778,15 @@ export function useForjaApp() {
     try {
       const planPatch =
         pendingNextStage === 'coder'
-          ? { adrs, files: files.map((f) => ({ name: f.name, path: f.path })) }
+          ? buildPlanPatch({
+              adrs,
+              files,
+              apiContracts,
+              dataModels,
+              dependencies: planDependencies,
+              nonFunctional,
+              seniorReview: architectSeniorReview || undefined
+            })
           : undefined;
       await api.approve(runConfig(), planPatch);
     } catch (err) {
@@ -766,6 +825,7 @@ export function useForjaApp() {
     setActiveAgent(null);
     setFiles([]);
     setAdrs([]);
+    clearArchitectPlan();
     setTests([]);
     setSecurityIssues([]);
     setDiagnosis(null);
@@ -826,6 +886,10 @@ export function useForjaApp() {
       setTaskStatus(run.status);
       setFiles(run.files || []);
       setAdrs(run.adrs || []);
+      applyArchitectPlan(run.plan, {
+        adrs: run.adrs,
+        files: (run.files || []).map((f) => ({ name: f.name, path: f.path }))
+      });
       setTests(run.tests || []);
       setSecurityIssues(run.securityIssues || []);
       setDiagnosis(run.config?.lastDiagnosis || run.diagnosis || null);
@@ -918,6 +982,15 @@ export function useForjaApp() {
     setSelectedFilePath,
     adrs,
     setAdrs,
+    apiContracts,
+    setApiContracts,
+    dataModels,
+    setDataModels,
+    planDependencies,
+    setPlanDependencies,
+    nonFunctional,
+    setNonFunctional,
+    architectSeniorReview,
     tests,
     securityIssues,
     diagnosis,

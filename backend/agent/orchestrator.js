@@ -96,6 +96,7 @@ class Orchestrator extends EventEmitter {
         startTime: row.started_at,
         files: row.files || [],
         adrs: row.adrs || plan.adrs || [],
+        plan,
         tests: row.tests || [],
         securityIssues: row.securityIssues || [],
         diagnosis: row.config?.lastDiagnosis || null,
@@ -389,6 +390,7 @@ class Orchestrator extends EventEmitter {
         path: f.path,
         content: ''
       }));
+      this.currentTask.plan = plan;
       this.savedPrompt = prompt;
 
       const { summarizePlan } = require('../lib/architectPlan');

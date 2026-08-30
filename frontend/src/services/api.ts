@@ -1,5 +1,5 @@
 import { API_BASE, getStoredToken } from '../config';
-import type { ADR, AuditRun, DogfoodStatus, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
+import type { ADR, ArchitectPlan, AuditRun, DogfoodStatus, Project, RunSummary, Task, TeamBoard, TeamInfo } from '../types/agent';
 
 interface RunQueuedResponse {
   queued?: boolean;
@@ -192,7 +192,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ sourcePath, config })
     }),
-  approve: (config: Record<string, unknown>, planPatch?: { adrs?: ADR[]; files?: unknown[] }) =>
+  approve: (config: Record<string, unknown>, planPatch?: ArchitectPlan) =>
     request('/api/agent/approve', {
       method: 'POST',
       body: JSON.stringify({ config, planPatch })

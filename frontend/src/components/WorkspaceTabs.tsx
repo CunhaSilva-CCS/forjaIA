@@ -1,16 +1,4 @@
-import {
-  Activity,
-  Bug,
-  Code2,
-  FileText,
-  Layers,
-  RefreshCw,
-  Settings,
-  ShieldAlert,
-  ShieldCheck,
-  Terminal as TerminalIcon,
-  Users
-} from 'lucide-react';
+import { Activity, Bug, Code2, FileText, Layers, Network, RefreshCw, Settings, ShieldAlert, ShieldCheck, Terminal as TerminalIcon, Users } from 'lucide-react';
 import type { AppState } from '../hooks/useForjaApp';
 import { TerminalTab } from './tabs/TerminalTab';
 import { CodeTab } from './tabs/CodeTab';
@@ -19,6 +7,7 @@ import { DiagnosisTab } from './tabs/DiagnosisTab';
 import { MetricsTab } from './tabs/MetricsTab';
 import { TokensTab } from './tabs/TokensTab';
 import { AdrsTab } from './tabs/AdrsTab';
+import { ArchitectureTab } from './tabs/ArchitectureTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ProjectsTab } from './tabs/ProjectsTab';
 import { TeamTab } from './tabs/TeamTab';
@@ -32,6 +21,7 @@ const TABS = [
   ['metrics', Activity, 'Métricas'],
   ['tokens', Layers, 'Tokens'],
   ['adrs', FileText, 'ADRs'],
+  ['architecture', Network, 'Arquitetura'],
   ['history', RefreshCw, 'Histórico'],
   ['audit', ShieldCheck, 'Auditoria'],
   ['projects', Settings, 'Projetos'],
@@ -57,6 +47,7 @@ export function WorkspaceTabs({ s }: { s: AppState }) {
         {s.currentTab === 'metrics' && <MetricsTab s={s} />}
         {s.currentTab === 'tokens' && <TokensTab s={s} />}
         {s.currentTab === 'adrs' && <AdrsTab s={s} />}
+        {s.currentTab === 'architecture' && <ArchitectureTab s={s} />}
         {s.currentTab === 'history' && <HistoryTab s={s} />}
         {s.currentTab === 'audit' && <AuditTab s={s} />}
         {s.currentTab === 'projects' && <ProjectsTab s={s} />}

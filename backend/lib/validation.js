@@ -58,7 +58,8 @@ const approveRequestSchema = z.object({
       apiContracts: z.array(z.record(z.unknown())).optional(),
       dataModels: z.array(z.record(z.unknown())).optional(),
       dependencies: z.array(z.record(z.unknown())).optional(),
-      nonFunctional: z.union([z.array(z.record(z.unknown())), z.record(z.unknown())]).optional()
+      nonFunctional: z.union([z.array(z.record(z.unknown())), z.record(z.unknown())]).optional(),
+      seniorReview: z.record(z.unknown()).optional()
     })
     .optional()
 });
