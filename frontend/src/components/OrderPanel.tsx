@@ -103,6 +103,31 @@ export function OrderPanel({ s }: { s: AppState }) {
       </div>
 
       <div className="actions-row">
+        {s.taskStatus === 'awaiting_approval' && s.pendingNextStage === 'qa' && s.preflightReport && (
+          <div
+            className="field"
+            style={{
+              width: '100%',
+              marginBottom: 8,
+              padding: 10,
+              borderRadius: 8,
+              border: `1px solid ${s.preflightReport.passed ? 'var(--success, #2ecc71)' : 'var(--warning, #f39c12)'}`
+            }}
+          >
+            <strong>
+              Preflight sandbox: {s.preflightReport.tests.filter((t) => t.passed).length}/
+              {s.preflightReport.tests.length} OK
+            </strong>
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }}>
+              {s.preflightReport.tests.map((t) => (
+                <li key={t.name} style={{ color: t.passed ? 'inherit' : 'var(--warning, #f39c12)' }}>
+                  {t.passed ? '✓' : '✗'} {t.name}
+                  {!t.passed && t.error ? ` — ${t.error}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {s.taskStatus === 'awaiting_approval' ? (
           <button className="btn-primary" onClick={s.handleApprove} disabled={s.isExecuting} style={{ flex: 1 }}>
             <Check size={16} /> {s.approveButtonLabel}

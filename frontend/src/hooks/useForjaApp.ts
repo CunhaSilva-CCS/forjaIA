@@ -24,6 +24,7 @@ import type {
   PerformanceMetrics,
   PipelineMode,
   PlanDependency,
+  PreflightReport,
   Project,
   RunSummary,
   SecurityIssue,
@@ -80,6 +81,7 @@ export function useForjaApp() {
   const [nonFunctional, setNonFunctional] = useState<NonFunctionalRequirement[]>([]);
   const [testScenarios, setTestScenarios] = useState<TestScenario[]>([]);
   const [architectSeniorReview, setArchitectSeniorReview] = useState<ArchitectSeniorReview | null>(null);
+  const [preflightReport, setPreflightReport] = useState<PreflightReport | null>(null);
   const [tests, setTests] = useState<TestItem[]>([]);
   const [securityIssues, setSecurityIssues] = useState<SecurityIssue[]>([]);
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
@@ -223,6 +225,7 @@ export function useForjaApp() {
     setNonFunctional([]);
     setTestScenarios([]);
     setArchitectSeniorReview(null);
+    setPreflightReport(null);
   }, []);
 
   const folderBrowser = useFolderBrowser(targetPath, showToast);
@@ -308,6 +311,7 @@ export function useForjaApp() {
     setSecurityIssues(task.securityIssues || []);
     setDiagnosis(task.diagnosis || task.config?.lastDiagnosis || null);
     setPerformanceMetrics(task.performanceMetrics || null);
+    setPreflightReport(task.preflightReport || null);
     setDeployUrl(task.deployUrl || null);
     const mode = task.config?.mode === 'validate' ? 'validate' : 'forge';
     setPipelineMode(mode);
@@ -448,8 +452,14 @@ export function useForjaApp() {
             setCurrentTab('architecture');
           }
           if (payload.agent === 'coder' && payload.status !== 'skipped' && payload.data) {
-            const codeOutput = payload.data as { files?: FileData[] };
+            const codeOutput = payload.data as {
+              files?: FileData[];
+              preflightReport?: PreflightReport;
+              seniorReview?: ArchitectSeniorReview;
+            };
             setFiles(codeOutput.files || []);
+            setPreflightReport(codeOutput.preflightReport || null);
+            if (codeOutput.seniorReview) setArchitectSeniorReview(codeOutput.seniorReview);
           }
           if (payload.agent === 'healer' && payload.status === 'success' && Array.isArray(payload.data)) {
             setFiles(payload.data as FileData[]);
@@ -998,6 +1008,7 @@ export function useForjaApp() {
     testScenarios,
     setTestScenarios,
     architectSeniorReview,
+    preflightReport,
     tests,
     securityIssues,
     diagnosis,

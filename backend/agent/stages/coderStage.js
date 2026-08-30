@@ -6,17 +6,34 @@ async function run(orchestrator, runConfig) {
 
   const codeOutput = await coder.execute(orchestrator.savedPrompt, orchestrator.savedPlan, runConfig, orchestrator);
   orchestrator.throwIfAborted();
-  orchestrator.currentTask.files = codeOutput.files;
-  orchestrator.saveFileVersions(codeOutput.files);
+
+  let files = codeOutput.files;
+  orchestrator.currentTask.files = files;
+  orchestrator.saveFileVersions(files);
   orchestrator.persistTask({ files: orchestrator.currentTask.files });
 
   const { runCoderPreflight } = require('../../lib/coderPreflight');
-  const preflight = await runCoderPreflight(
-    codeOutput.files,
-    orchestrator.savedPlan,
-    orchestrator
-  );
+  let preflight = await runCoderPreflight(files, orchestrator.savedPlan, orchestrator);
+
+  if (!preflight.passed) {
+    const { remediatePreflightFailures } = require('../../lib/coderPreflightFix');
+    files = await remediatePreflightFailures(
+      files,
+      orchestrator.savedPlan,
+      preflight,
+      orchestrator.savedPrompt,
+      runConfig,
+      orchestrator
+    );
+    orchestrator.throwIfAborted();
+    orchestrator.currentTask.files = files;
+    orchestrator.saveFileVersions(files);
+    orchestrator.persistTask({ files });
+    preflight = await runCoderPreflight(files, orchestrator.savedPlan, orchestrator);
+  }
+
   orchestrator.currentTask.preflightReport = preflight;
+  orchestrator.currentTask.coderSeniorReview = codeOutput.seniorReview || null;
 
   const ok = preflight.tests.filter((t) => t.passed).length;
   const total = preflight.tests.length;
@@ -29,7 +46,11 @@ async function run(orchestrator, runConfig) {
   );
 
   orchestrator.log('coder', 'Código-fonte gerado para todos os arquivos planejados.', 'success');
-  orchestrator.broadcast('agent-finished', { agent: 'coder', status: 'success', data: codeOutput });
+  orchestrator.broadcast('agent-finished', {
+    agent: 'coder',
+    status: 'success',
+    data: { files, preflightReport: preflight, seniorReview: codeOutput.seniorReview || null }
+  });
   await orchestrator.pauseForApproval(
     'qa',
     preflight.passed

@@ -65,6 +65,18 @@ export interface TestScenario {
   captureAs?: string;
 }
 
+export interface PreflightCheck {
+  name: string;
+  passed: boolean;
+  error?: string | null;
+}
+
+export interface PreflightReport {
+  passed: boolean;
+  tests: PreflightCheck[];
+  suite?: string;
+}
+
 export interface ArchitectSeniorReview {
   verdict?: string;
   summary?: string;
@@ -182,6 +194,8 @@ export interface Task {
   files?: FileData[];
   adrs?: ADR[];
   plan?: ArchitectPlan | null;
+  preflightReport?: PreflightReport | null;
+  coderSeniorReview?: ArchitectSeniorReview | null;
   tests?: TestItem[];
   securityIssues?: SecurityIssue[];
   diagnosis?: Diagnosis | null;
@@ -210,6 +224,8 @@ export interface RunSummary {
   files?: FileData[];
   adrs?: ADR[];
   plan?: ArchitectPlan | null;
+  preflightReport?: PreflightReport | null;
+  coderSeniorReview?: ArchitectSeniorReview | null;
   tests?: TestItem[];
   securityIssues?: SecurityIssue[];
   performanceMetrics?: PerformanceMetrics | null;

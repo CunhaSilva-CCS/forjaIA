@@ -413,7 +413,12 @@ function buildCoderHandoff(plan) {
     sections.push(JSON.stringify(p.testScenarios, null, 2));
     sections.push(
       '',
-      'Use envelope JSON estável { success, data|error } quando fizer sentido; respeite status HTTP e paths exatos.'
+      'ENVELOPE DE RESPOSTA (obrigatório para APIs HTTP):',
+      '- Sucesso: { "success": true, "data": <payload> } com status 2xx adequado (201 em POST de criação).',
+      '- Erro de validação/cliente: { "success": false, "error": "<mensagem clara>" } com status 4xx.',
+      '- Erro interno: { "success": false, "error": "..." } com status 500 — nunca vaze stack trace.',
+      '- Tokens JWT: campo "token" ou dentro de "data.token" / "data.accessToken" (QA aceita variações razoáveis).',
+      '- Listagens: array em "data" ou na raiz — seja consistente em TODAS as rotas do mesmo recurso.'
     );
   }
   if (p.seniorReview?.summary) {
