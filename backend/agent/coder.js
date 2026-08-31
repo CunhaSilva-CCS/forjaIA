@@ -31,6 +31,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get('/health', (_req, res) => res.json({ success: true, status: 'ok' }));
+
 // Rotas públicas
 app.post('/api/auth/register', authController.register);
 app.post('/api/auth/login', authController.login);
@@ -189,6 +191,8 @@ const taskController = require('./controllers/taskController');
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.get('/health', (_req, res) => res.json({ success: true, status: 'ok' }));
 
 // Rotas CRUD
 app.get('/api/tasks', taskController.getAll);

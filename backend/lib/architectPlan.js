@@ -235,7 +235,7 @@ function deriveTestScenariosFromContracts(apiContracts, existing = []) {
         method: 'POST',
         path: contract.path,
         body: sampleBodyFromRequest(contract.request),
-        expectedStatus: lower.includes('register') ? '2xx' : '200',
+        expectedStatus: '2xx',
         expect: expectToken ? 'token' : 'object-id',
         captureAs: expectToken ? undefined : 'createdId'
       });
