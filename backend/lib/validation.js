@@ -18,6 +18,7 @@ const runConfigSchema = z.object({
   sourcePath: z.string().min(1).optional(),
   pendingNextStage: z.string().optional(),
   forceQa: z.boolean().optional(),
+  dogfood: z.boolean().optional(),
   healingAttempts: z.number().int().nonnegative().optional(),
   environment: z.enum(['local', 'staging']).optional()
 });

@@ -9,6 +9,7 @@
  *   node scripts/dogfood-forge.js
  *   node scripts/dogfood-forge.js --prompt "crie uma API de tarefas em Express com testes"
  *   node scripts/dogfood-forge.js --max-minutes 45 --poll-ms 4000
+ *   node scripts/dogfood-forge.js --max-approvals 35 --max-userfix-retries 2
  *
  * Pra automatizar (cron, ex. toda segunda às 6h — o backend precisa estar rodando):
  *   0 6 * * 1 cd /caminho/do/ForjaIA && node scripts/dogfood-forge.js >> backend/data/dogfood.log 2>&1
@@ -28,11 +29,20 @@ const DEFAULT_PROMPT =
   'Crie uma API REST simples de lista de tarefas (CRUD de tarefas: listar, criar, atualizar, deletar) em Node.js/Express, com validação de título obrigatório.';
 
 function parseArgs(argv) {
-  const args = { prompt: DEFAULT_PROMPT, pollMs: 5000, maxMinutes: 60, reportDir: null };
+  const args = {
+    prompt: DEFAULT_PROMPT,
+    pollMs: 5000,
+    maxMinutes: 60,
+    maxApprovals: 40,
+    maxUserFixRetries: 2,
+    reportDir: null
+  };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--prompt') args.prompt = argv[++i];
     else if (argv[i] === '--poll-ms') args.pollMs = Number(argv[++i]);
     else if (argv[i] === '--max-minutes') args.maxMinutes = Number(argv[++i]);
+    else if (argv[i] === '--max-approvals') args.maxApprovals = Number(argv[++i]);
+    else if (argv[i] === '--max-userfix-retries') args.maxUserFixRetries = Number(argv[++i]);
     else if (argv[i] === '--report-dir') args.reportDir = argv[++i];
   }
   return args;
@@ -76,20 +86,25 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForCompletion({ pollMs, maxMinutes, onEvent }) {
+function isUserFixFailure(message) {
+  return /Corretor do Usuário falhou|userFix/i.test(String(message || ''));
+}
+
+async function waitForCompletion({ pollMs, maxMinutes, maxApprovals, maxUserFixRetries, onEvent }) {
   const deadline = Date.now() + maxMinutes * 60 * 1000;
   let lastStatus = null;
   let approvals = 0;
+  let userFixFailures = 0;
 
   for (;;) {
     if (Date.now() > deadline) {
       await apiFetch('POST', '/api/agent/cancel').catch(() => {});
-      return { outcome: 'timeout', approvals };
+      return { outcome: 'timeout', approvals, userFixFailures };
     }
 
     const status = await apiFetch('GET', '/api/agent/status');
     const task = status.task;
-    if (!task) return { outcome: 'no-task', approvals };
+    if (!task) return { outcome: 'no-task', approvals, userFixFailures };
 
     if (task.status !== lastStatus) {
       lastStatus = task.status;
@@ -97,13 +112,44 @@ async function waitForCompletion({ pollMs, maxMinutes, onEvent }) {
     }
 
     if (['completed', 'failed', 'cancelled'].includes(task.status)) {
-      return { outcome: task.status, approvals, runId: task.id };
+      return { outcome: task.status, approvals, userFixFailures, runId: task.id };
     }
 
     if (task.status === 'awaiting_approval' && !status.isExecuting) {
+      const gateMessage = task.approvalMessage || '(sem mensagem)';
+
+      if (isUserFixFailure(gateMessage)) {
+        userFixFailures += 1;
+        if (userFixFailures > maxUserFixRetries) {
+          onEvent(
+            `abortando: userFix falhou ${userFixFailures}x (limite ${maxUserFixRetries}) — cancelando run`
+          );
+          await apiFetch('POST', '/api/agent/cancel').catch(() => {});
+          return {
+            outcome: 'stuck-userfix',
+            approvals,
+            userFixFailures,
+            runId: task.id
+          };
+        }
+      }
+
+      if (approvals >= maxApprovals) {
+        onEvent(`abortando: limite de ${maxApprovals} aprovações automáticas atingido`);
+        await apiFetch('POST', '/api/agent/cancel').catch(() => {});
+        return {
+          outcome: 'max-approvals',
+          approvals,
+          userFixFailures,
+          runId: task.id
+        };
+      }
+
       approvals += 1;
-      onEvent(`aprovando gate #${approvals}: ${task.approvalMessage || '(sem mensagem)'}`);
-      await apiFetch('POST', '/api/agent/approve', { config: {} });
+      onEvent(`aprovando gate #${approvals}: ${gateMessage}`);
+      await apiFetch('POST', '/api/agent/approve', {
+        config: { dogfood: true }
+      });
     }
 
     await sleep(pollMs);
@@ -130,20 +176,24 @@ async function main() {
   log(`iniciando forja: "${args.prompt}"`);
   await apiFetch('POST', '/api/agent/run', {
     prompt: args.prompt,
-    config: { mode: 'forge', environment: 'local' }
+    config: { mode: 'forge', environment: 'local', dogfood: true }
   });
 
   const result = await waitForCompletion({
     pollMs: args.pollMs,
     maxMinutes: args.maxMinutes,
+    maxApprovals: args.maxApprovals,
+    maxUserFixRetries: args.maxUserFixRetries,
     onEvent: log
   });
 
   let run = null;
+  let reliabilityStats = null;
   let opsHealth = null;
   if (result.runId) {
     run = await apiFetch('GET', `/api/runs/${result.runId}`).catch((err) => ({ error: err.message }));
   }
+  reliabilityStats = await apiFetch('GET', '/api/runs/stats/reliability').catch((err) => ({ error: err.message }));
   opsHealth = await apiFetch('GET', '/api/ops/health').catch((err) => ({ error: err.message }));
 
   const finishedAt = new Date();
@@ -156,9 +206,11 @@ async function main() {
     runId: result.runId || null,
     outcome: result.outcome,
     approvals: result.approvals,
+    userFixFailures: result.userFixFailures || 0,
     tests,
     securityIssues: run?.securityIssues || null,
     reliability: run?.reliability || null,
+    reliabilityStats,
     opsHealth,
     runError: run?.error || null
   };
@@ -176,7 +228,14 @@ async function main() {
     `- Run: ${report.runId || '(nenhuma)'}`,
     `- Duração: ${Math.round(report.durationMs / 1000)}s`,
     `- Gates aprovados automaticamente: ${report.approvals}`,
+    `- Falhas userFix consecutivas: ${report.userFixFailures}`,
     `- Testes: ${tests.passed ?? 0}/${tests.total ?? 0}`,
+    report.reliability
+      ? `- Reliability run: sem intervenção=${report.reliability.finishedWithoutIntervention}, preflight=${report.reliability.preflightPassed}`
+      : '',
+    report.reliabilityStats?.measuredRuns
+      ? `- Dashboard: measuredRuns=${report.reliabilityStats.measuredRuns}, preflightPassRate=${report.reliabilityStats.preflightPassRate}`
+      : '',
     report.securityIssues ? `- Achados de segurança: ${JSON.stringify(report.securityIssues)}` : '',
     report.runError ? `- Erro da run: ${report.runError}` : '',
     tests.failing?.length
@@ -187,9 +246,14 @@ async function main() {
   fs.writeFileSync(mdPath, mdLines.join('\n') + '\n');
 
   log(`relatório: ${jsonPath}`);
-  log(`resultado=${report.outcome} testes=${tests.passed ?? 0}/${tests.total ?? 0} aprovações=${report.approvals}`);
+  log(
+    `resultado=${report.outcome} testes=${tests.passed ?? 0}/${tests.total ?? 0} aprovações=${report.approvals} measuredRuns=${report.reliabilityStats?.measuredRuns ?? 0}`
+  );
 
-  const ok = report.outcome === 'completed' && (tests.total === 0 || tests.passed === tests.total);
+  const ok =
+    report.outcome === 'completed' &&
+    (tests.total === 0 || tests.passed === tests.total) &&
+    (report.reliabilityStats?.measuredRuns || 0) >= 1;
   process.exit(ok ? 0 : 1);
 }
 

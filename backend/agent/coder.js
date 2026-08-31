@@ -32,6 +32,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ success: true, status: 'ok' }));
+app.get('/api/health', (_req, res) => res.json({ success: true, status: 'ok' }));
 
 // Rotas públicas
 app.post('/api/auth/register', authController.register);
@@ -193,6 +194,13 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ success: true, status: 'ok' }));
+app.get('/api/health', (_req, res) => res.json({ success: true, status: 'ok' }));
+
+app.get('/', (_req, res) => {
+  res.status(200).type('html').send(
+    '<!DOCTYPE html><html><head><title>Task API</title></head><body><h1>Task API</h1><p>CRUD de tarefas — <a href="/api/tasks">/api/tasks</a></p></body></html>'
+  );
+});
 
 // Rotas CRUD
 app.get('/api/tasks', taskController.getAll);

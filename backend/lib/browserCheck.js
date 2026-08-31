@@ -139,12 +139,23 @@ async function runBrowserCheck({ deployUrl, buttons = [], runConfig = {}, orches
       });
     }
   } catch (err) {
+    const msg = String(err.message || err);
+    if (/Executable doesn't exist|playwright install|browserType\.launch/i.test(msg)) {
+      return {
+        available: false,
+        ok: true,
+        skippedReason: 'Chromium do Playwright não instalado — rode: npx playwright install chromium',
+        issues: [],
+        screenshots: []
+      };
+    }
     issues.push({
       id: 'UX-BROWSER-CHECK-FAILED',
       severity: 'HIGH',
       title: 'Não foi possível abrir/usar o deploy num navegador real',
-      description: err.message,
-      remediation: 'Confirmar que o deploy está acessível e renderiza corretamente num navegador (não só via curl/fetch).'
+      description: msg,
+      remediation:
+        'Confirmar que o deploy está acessível e renderiza corretamente num navegador (não só via curl/fetch).'
     });
   } finally {
     await browser?.close().catch(() => undefined);

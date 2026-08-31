@@ -319,8 +319,12 @@ Corrija os problemas relatados. Devolva o conteúdo completo de cada arquivo alt
       if (!config.allowMocks) {
         throw new Error(`Falha no LLM do Corretor do Usuário: ${err.message}`);
       }
-      orchestrator.log('userFix', `LLM indisponível (${err.message}).`, 'warning');
-      throw err;
+      orchestrator.log(
+        'userFix',
+        `Mocks/offline: LLM indisponível (${err.message}) — mantendo arquivos sem alteração.`,
+        'warning'
+      );
+      return files || [];
     }
   }
 };
