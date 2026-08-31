@@ -61,6 +61,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.forceQaUsed = false;
     this.maxHealingAttempts = 3;
     // Achado real (auditoria funcional ao vivo): userFix.js retentava indefinidamente com o
     // MESMO provedor sem nunca escalar — vi 4 falhas seguidas em Ollama local antes de acertar
@@ -96,6 +97,7 @@ class Orchestrator extends EventEmitter {
         startTime: row.started_at,
         files: row.files || [],
         adrs: row.adrs || plan.adrs || [],
+        plan,
         tests: row.tests || [],
         securityIssues: row.securityIssues || [],
         diagnosis: row.config?.lastDiagnosis || null,
@@ -324,6 +326,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.forceQaUsed = false;
     this.userFixAttempts = 0;
     this.createAbortController();
 
@@ -389,11 +392,13 @@ class Orchestrator extends EventEmitter {
         path: f.path,
         content: ''
       }));
+      this.currentTask.plan = plan;
       this.savedPrompt = prompt;
 
+      const { summarizePlan } = require('../lib/architectPlan');
       this.log(
         'architect',
-        `Planejamento concluído. ${plan.files.length} arquivos planejados. ${(plan.adrs || []).length} ADRs documentados.`,
+        `Planejamento concluído. ${summarizePlan(plan)}.`,
         'success'
       );
       this.broadcast('agent-finished', { agent: 'architect', status: 'success', data: plan });
@@ -442,6 +447,27 @@ class Orchestrator extends EventEmitter {
     const nextStage = pendingFromTask || pendingFromSaved || defaultStage;
     if (!STAGE_LABELS[nextStage]) {
       throw new Error(`Etapa pendente inválida: ${nextStage}`);
+    }
+
+    if (
+      nextStage === 'qa' &&
+      this.currentTask.preflightReport &&
+      this.currentTask.preflightReport.passed === false &&
+      !customConfig.forceQa
+    ) {
+      const err = new Error(
+        'Preflight reprovado — QA bloqueado (fail-closed). Corrija o código ou envie forceQa: true na aprovação.'
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (nextStage === 'qa' && customConfig.forceQa && this.currentTask.preflightReport?.passed === false) {
+      this.forceQaUsed = true;
+      this.log(
+        'orchestrator',
+        'QA aprovado com forceQa apesar de preflight reprovado — risco de falhas na suíte.',
+        'warning'
+      );
     }
 
     const { assertCanApprove } = require('../lib/rbac');
@@ -511,10 +537,15 @@ class Orchestrator extends EventEmitter {
     this.savedConfig = { ...runConfig, healingAttempts: this.healingAttempts, userFixAttempts: this.userFixAttempts };
 
     if (planPatch) {
-      if (planPatch.files && nextStage === 'coder') this.savedPlan.files = planPatch.files;
+      const { normalizePlan } = require('../lib/architectPlan');
+      if (nextStage === 'coder') {
+        this.savedPlan = normalizePlan({
+          ...this.savedPlan,
+          ...planPatch
+        });
+      }
       if (planPatch.adrs && (nextStage === 'coder' || nextStage === 'qa')) {
-        this.savedPlan.adrs = planPatch.adrs;
-        this.currentTask.adrs = planPatch.adrs;
+        this.currentTask.adrs = this.savedPlan.adrs;
       }
     }
 
@@ -706,6 +737,7 @@ class Orchestrator extends EventEmitter {
     this.fileVersionCounters = {};
     this.healingAttempts = 0;
     this.userFixInvoked = false;
+    this.forceQaUsed = false;
     this.userFixAttempts = 0;
     this.createAbortController();
 
@@ -847,10 +879,14 @@ class Orchestrator extends EventEmitter {
       this.currentTask.reportPdfPath = pdfPath;
 
       const { computeReliability } = require('../lib/reliability');
+      const preflight = this.currentTask.preflightReport;
       const reliability = computeReliability({
         healingAttempts: this.healingAttempts,
         userFixInvoked: this.userFixInvoked,
-        summary: model.summary
+        summary: model.summary,
+        preflightPassed: preflight ? preflight.passed : null,
+        preflightFixAttempts: this.currentTask.preflightFixAttempts ?? null,
+        forceQaUsed: this.forceQaUsed
       });
       this.currentTask.reliability = reliability;
       this.persistTask({ reliability });

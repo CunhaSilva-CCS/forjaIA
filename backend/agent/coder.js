@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { composeSystemPrompt, announceThinking, loadStyleRules } = require('../lib/seniorEngineer');
+const { buildCoderHandoff } = require('../lib/architectPlan');
 
 // Códigos fonte offline de altíssima qualidade (mock funcional e seguro)
 const MOCK_CODES = {
@@ -305,6 +306,51 @@ exports.delete = async (req, res) => {
 const config = require('../lib/config');
 const { generateJson } = require('../lib/llm');
 
+const CODER_REVIEW_CONTRACT = `Revise o código gerado contra o plano arquitetural aprovado e cenários QA.
+Verifique: rotas/métodos batem com contratos, GET /health existe, package.json válido,
+imports referenciam arquivos entregues, envelope JSON coerente, cenários QA passariam.
+Retorne APENAS JSON:
+{
+  "verdict": "aprovado|ressalvas|reprovado",
+  "summary": "1-3 frases",
+  "gaps": ["lacuna concreta..."],
+  "priorityFixes": ["correção priorizada..."]
+}`;
+
+async function runCoderSeniorReview(files, plan, prompt, runConfig, orchestrator) {
+  const { thinkAsSenior } = require('../lib/seniorEngineer');
+  const { getPlanTestCases } = require('../lib/architectPlan');
+  const senior = await thinkAsSenior({
+    role: 'coder',
+    taskContract: CODER_REVIEW_CONTRACT,
+    userPayload: {
+      requirement: prompt,
+      testScenarios: getPlanTestCases(plan),
+      planSummary: {
+        apiContracts: plan?.apiContracts?.length || 0,
+        files: (plan?.files || []).map((f) => f.path)
+      },
+      files: (files || []).map((f) => ({
+        path: f.path,
+        preview: String(f.content || '').slice(0, 3500)
+      }))
+    },
+    runConfig,
+    orchestrator
+  });
+  if (senior?.summary) {
+    const level =
+      senior.verdict === 'aprovado' ? 'success' : senior.verdict === 'reprovado' ? 'warning' : 'info';
+    orchestrator.log('coder', `Revisão sênior (implementação): ${senior.summary}`, level);
+    if (Array.isArray(senior.gaps) && senior.gaps.length) {
+      for (const gap of senior.gaps.slice(0, 5)) {
+        orchestrator.log('coder', `Gap: ${gap}`, 'warning');
+      }
+    }
+  }
+  return senior || null;
+}
+
 function buildMockFiles(prompt, plan) {
   const lower = prompt.toLowerCase();
   let templateKey = 'default';
@@ -344,10 +390,11 @@ module.exports = {
     const styleRules = loadStyleRules(runConfig);
     orchestrator.log('coder', `Aplicando ${styleRules.length} regras de engenharia sênior.`, 'info');
 
+    const handoff = buildCoderHandoff(plan);
     const system = composeSystemPrompt(
       'coder',
-      `Implemente TODOS os arquivos planejados com conteúdo completo, seguro e executável.
-Arquivos planejados: ${JSON.stringify(plan.files)}.
+      `Implemente TODOS os arquivos do plano arquitetural aprovado com conteúdo completo, seguro e executável.
+Respeite ADRs, contratos de API, modelos de dados, dependências e NFRs do handoff — não improvise fora do plano.
 Siga o CHECKLIST DE PRODUÇÃO da constituição à risca — cada item que você pular aqui vira uma
 volta a mais em QA/Segurança/Curador depois, com o mesmo diagnóstico batendo de novo. É mais
 barato acertar agora do que corrigir em 3 ciclos de cura.
@@ -360,7 +407,12 @@ Nunca grave segredos de produção no código; use process.env.`,
     try {
       const result = await generateJson({
         system,
-        user: 'Requisito: ' + prompt + '\nCrie todos os arquivos planejados com conteúdo completo de nível produção.',
+        user:
+          'Requisito: ' +
+          prompt +
+          '\n\n' +
+          handoff +
+          '\n\nCrie todos os arquivos planejados com conteúdo completo de nível produção.',
         runConfig,
         signal: orchestrator.getSignal()
       });
@@ -373,7 +425,8 @@ Nunca grave segredos de produção no código; use process.env.`,
       const files = normalizeFiles(result.data.files);
       if (!files.length) throw new Error('O LLM não retornou arquivos');
       orchestrator.log('coder', 'Código gerado via ' + result.provider + '.', 'success');
-      return { files };
+      const seniorReview = await runCoderSeniorReview(files, plan, prompt, runConfig, orchestrator);
+      return { files, seniorReview };
     } catch (err) {
       if (!config.allowMocks) {
         throw new Error('Falha no LLM do Codificador (mocks desligados): ' + err.message);

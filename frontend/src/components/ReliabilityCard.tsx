@@ -57,6 +57,22 @@ export function ReliabilityCard({ s }: { s: AppState }) {
               <span className="k">Humano aprovou</span>
               <span className="v">{pct1(stats.humanPassedRate)}</span>
             </div>
+            <div>
+              <span className="k">Preflight OK</span>
+              <span className="v">{pct1(stats.preflightPassRate)}</span>
+            </div>
+            <div>
+              <span className="k">Fix preflight / run</span>
+              <span className="v">{stats.avgPreflightFixAttempts?.toFixed(1) ?? '—'}</span>
+            </div>
+            <div>
+              <span className="k">Force QA</span>
+              <span className="v">{pct1(stats.forceQaRate)}</span>
+            </div>
+            <div>
+              <span className="k">Paridade PF↔QA</span>
+              <span className="v">{pct1(stats.preflightQaParityRate)}</span>
+            </div>
           </div>
           <p className="field-hint">
             Medido, não estimado — só conta runs que chegaram no Relatório desde que essa

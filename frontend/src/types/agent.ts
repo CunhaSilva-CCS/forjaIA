@@ -21,6 +21,79 @@ export interface ADR {
   consequences: string;
 }
 
+export interface ApiContract {
+  method: string;
+  path: string;
+  description: string;
+  auth?: string | boolean;
+  request?: unknown;
+  response?: unknown;
+}
+
+export interface DataModelField {
+  name: string;
+  type: string;
+  required?: boolean;
+  description?: string;
+}
+
+export interface DataModel {
+  name: string;
+  description?: string;
+  fields: DataModelField[];
+}
+
+export interface PlanDependency {
+  name: string;
+  version?: string;
+  reason?: string;
+}
+
+export interface NonFunctionalRequirement {
+  area: string;
+  requirement: string;
+}
+
+export interface TestScenario {
+  name: string;
+  method: string;
+  path: string;
+  body?: unknown;
+  auth?: boolean;
+  expectedStatus?: string;
+  expect?: string;
+  captureAs?: string;
+}
+
+export interface PreflightCheck {
+  name: string;
+  passed: boolean;
+  error?: string | null;
+}
+
+export interface PreflightReport {
+  passed: boolean;
+  tests: PreflightCheck[];
+  suite?: string;
+}
+
+export interface ArchitectSeniorReview {
+  verdict?: string;
+  summary?: string;
+  risks?: string[];
+}
+
+export interface ArchitectPlan {
+  files: Array<{ name: string; path: string; purpose?: string }>;
+  adrs: ADR[];
+  apiContracts: ApiContract[];
+  dataModels: DataModel[];
+  dependencies: PlanDependency[];
+  nonFunctional: NonFunctionalRequirement[];
+  testScenarios: TestScenario[];
+  seniorReview?: ArchitectSeniorReview;
+}
+
 export interface TestItem {
   name: string;
   passed: boolean;
@@ -120,6 +193,9 @@ export interface Task {
   prompt?: string;
   files?: FileData[];
   adrs?: ADR[];
+  plan?: ArchitectPlan | null;
+  preflightReport?: PreflightReport | null;
+  coderSeniorReview?: ArchitectSeniorReview | null;
   tests?: TestItem[];
   securityIssues?: SecurityIssue[];
   diagnosis?: Diagnosis | null;
@@ -147,6 +223,9 @@ export interface RunSummary {
   error?: string | null;
   files?: FileData[];
   adrs?: ADR[];
+  plan?: ArchitectPlan | null;
+  preflightReport?: PreflightReport | null;
+  coderSeniorReview?: ArchitectSeniorReview | null;
   tests?: TestItem[];
   securityIssues?: SecurityIssue[];
   performanceMetrics?: PerformanceMetrics | null;
@@ -263,6 +342,7 @@ export type WorkspaceTab =
   | 'metrics'
   | 'tokens'
   | 'adrs'
+  | 'architecture'
   | 'history'
   | 'projects'
   | 'team'

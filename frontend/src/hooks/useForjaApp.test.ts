@@ -35,7 +35,11 @@ vi.mock('../services/api', () => ({
         avgHealingAttempts: null,
         userFixInvokedRate: null,
         avgTestPassRate: null,
-        humanPassedRate: null
+        humanPassedRate: null,
+        preflightPassRate: null,
+        avgPreflightFixAttempts: null,
+        forceQaRate: null,
+        preflightQaParityRate: null
       }),
       downloadExport: vi.fn(),
       downloadReportPdf: vi.fn(),
@@ -100,7 +104,11 @@ beforeEach(() => {
     avgHealingAttempts: null,
     userFixInvokedRate: null,
     avgTestPassRate: null,
-    humanPassedRate: null
+    humanPassedRate: null,
+    preflightPassRate: null,
+    avgPreflightFixAttempts: null,
+    forceQaRate: null,
+    preflightQaParityRate: null
   });
   vi.mocked(api.audit.list).mockResolvedValue({ runs: [] });
   vi.mocked(api.services.status).mockResolvedValue({

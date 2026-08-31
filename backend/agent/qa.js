@@ -432,6 +432,41 @@ async function runMobileSuite(files, runConfig, orchestrator) {
   return runNativeTestSuite(projectDir, orchestrator);
 }
 
+function logPreflightQaParity(orchestrator, qaReport) {
+  const preflight = orchestrator.currentTask?.preflightReport;
+  if (!preflight?.tests?.length) return;
+
+  const pfOk = preflight.tests.filter((t) => t.passed).length;
+  const pfTotal = preflight.tests.length;
+  const qaOk = qaReport.tests.filter((t) => t.passed).length;
+  const qaTotal = qaReport.tests.length;
+  const aligned = preflight.passed === qaReport.passed;
+
+  orchestrator.log(
+    'qa',
+    `Paridade preflight↔QA: ${pfOk}/${pfTotal} → ${qaOk}/${qaTotal}`,
+    aligned ? 'info' : 'warning'
+  );
+
+  if (!aligned) {
+    const pfFail = preflight.tests.filter((t) => !t.passed).map((t) => t.name);
+    const qaFail = qaReport.tests.filter((t) => !t.passed).map((t) => t.name);
+    if (pfFail.length) {
+      orchestrator.log('qa', `Falhas no preflight: ${pfFail.join(', ')}`, 'warning');
+    }
+    if (qaFail.length) {
+      orchestrator.log('qa', `Falhas na QA formal: ${qaFail.join(', ')}`, 'warning');
+    }
+    if (preflight.passed && !qaReport.passed) {
+      orchestrator.log(
+        'qa',
+        'Regressão detectada: preflight passou mas QA formal falhou — investigar flakiness ou diferença de ambiente.',
+        'warning'
+      );
+    }
+  }
+}
+
 module.exports = {
   execute: async (files, config, orchestrator) => {
     const { announceThinking, thinkAsSenior } = require('../lib/seniorEngineer');
@@ -459,30 +494,44 @@ module.exports = {
       }
 
       const { runGeneratedTests, isValidCase } = require('../lib/testPlanRunner');
-      let dynamicPlan = null;
-      try {
-        dynamicPlan = await generateTestPlan(files, config, orchestrator);
-      } catch (err) {
-        orchestrator.log('qa', `Geração de plano de teste dinâmico falhou (${err.message}); usando suíte fixa de fallback.`, 'warning');
-      }
-      const validCases = Array.isArray(dynamicPlan?.cases) ? dynamicPlan.cases.filter(isValidCase) : [];
+      const { getPlanTestCases } = require('../lib/architectPlan');
+      const planCases = getPlanTestCases(orchestrator.savedPlan);
 
-      if (validCases.length >= 2) {
-        orchestrator.log('qa', `Executando suíte de testes gerada dinamicamente a partir do código real (${validCases.length} casos)...`, 'info');
-        report = await runGeneratedTests({ cases: validCases }, sandboxInfo.baseUrl, orchestrator);
-        suite = 'dynamic';
+      if (planCases.length >= 2) {
+        orchestrator.log(
+          'qa',
+          `Executando ${planCases.length} cenários aprovados no plano arquitetural (determinístico)...`,
+          'info'
+        );
+        report = await runGeneratedTests({ cases: planCases }, sandboxInfo.baseUrl, orchestrator);
+        suite = 'plan-approved';
+        logPreflightQaParity(orchestrator, report);
       } else {
-        suite = detectSuite(files);
-        orchestrator.log('qa', 'Plano dinâmico vazio/insuficiente; usando suíte fixa de fallback.', 'warning');
-        if (suite === 'rag') {
-          orchestrator.log('qa', 'Executando suíte de testes RAG...', 'info');
-          report = await runRagTests(sandboxInfo.baseUrl, orchestrator);
-        } else if (suite === 'auth') {
-          orchestrator.log('qa', 'Executando suíte de testes de Autenticação/JWT...', 'info');
-          report = await runAuthTests(sandboxInfo.baseUrl, orchestrator);
+        let dynamicPlan = null;
+        try {
+          dynamicPlan = await generateTestPlan(files, config, orchestrator);
+        } catch (err) {
+          orchestrator.log('qa', `Geração de plano de teste dinâmico falhou (${err.message}); usando suíte fixa de fallback.`, 'warning');
+        }
+        const validCases = Array.isArray(dynamicPlan?.cases) ? dynamicPlan.cases.filter(isValidCase) : [];
+
+        if (validCases.length >= 2) {
+          orchestrator.log('qa', `Executando suíte de testes gerada dinamicamente a partir do código real (${validCases.length} casos)...`, 'info');
+          report = await runGeneratedTests({ cases: validCases }, sandboxInfo.baseUrl, orchestrator);
+          suite = 'dynamic';
         } else {
-          orchestrator.log('qa', 'Executando suíte de testes CRUD de Tarefas...', 'info');
-          report = await runCrudTests(sandboxInfo.baseUrl, orchestrator);
+          suite = detectSuite(files);
+          orchestrator.log('qa', 'Plano dinâmico vazio/insuficiente; usando suíte fixa de fallback.', 'warning');
+          if (suite === 'rag') {
+            orchestrator.log('qa', 'Executando suíte de testes RAG...', 'info');
+            report = await runRagTests(sandboxInfo.baseUrl, orchestrator);
+          } else if (suite === 'auth') {
+            orchestrator.log('qa', 'Executando suíte de testes de Autenticação/JWT...', 'info');
+            report = await runAuthTests(sandboxInfo.baseUrl, orchestrator);
+          } else {
+            orchestrator.log('qa', 'Executando suíte de testes CRUD de Tarefas...', 'info');
+            report = await runCrudTests(sandboxInfo.baseUrl, orchestrator);
+          }
         }
       }
 

@@ -78,6 +78,8 @@ const config = {
 
   requireDocker: parseBool(process.env.FORJA_REQUIRE_DOCKER, true),
   allowMocks: parseBool(process.env.FORJA_ALLOW_MOCKS, false),
+  /** Tentativas automáticas de correção após preflight reprovado (padrão 2 → até 3 execuções de preflight). */
+  preflightMaxFixAttempts: Math.min(5, Math.max(0, Number(process.env.FORJA_PREFLIGHT_MAX_FIX || 2))),
   allowPublicBind: parseBool(process.env.FORJA_ALLOW_PUBLIC_BIND, false),
   llmTimeoutMs: Number(process.env.FORJA_LLM_TIMEOUT_MS || 300000),
   llmRetries: Number(process.env.FORJA_LLM_RETRIES || 2),

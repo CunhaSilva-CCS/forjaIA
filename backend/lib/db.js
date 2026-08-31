@@ -456,13 +456,19 @@ const runs = {
         avgHealingAttempts: null,
         userFixInvokedRate: null,
         avgTestPassRate: null,
-        humanPassedRate: null
+        humanPassedRate: null,
+        preflightPassRate: null,
+        avgPreflightFixAttempts: null,
+        forceQaRate: null,
+        preflightQaParityRate: null
       };
     }
 
     const sum = (fn) => rows.reduce((acc, r) => acc + fn(r), 0);
     const testRuns = rows.filter((r) => r.testsTotal > 0);
     const humanRuns = rows.filter((r) => r.humanPassed !== null && r.humanPassed !== undefined);
+    const preflightRuns = rows.filter((r) => r.preflightPassed !== null && r.preflightPassed !== undefined);
+    const parityRuns = rows.filter((r) => r.preflightQaAligned !== null && r.preflightQaAligned !== undefined);
 
     return {
       measuredRuns: total,
@@ -474,6 +480,18 @@ const runs = {
         : null,
       humanPassedRate: humanRuns.length
         ? humanRuns.reduce((acc, r) => acc + (r.humanPassed ? 1 : 0), 0) / humanRuns.length
+        : null,
+      preflightPassRate: preflightRuns.length
+        ? preflightRuns.reduce((acc, r) => acc + (r.preflightPassed ? 1 : 0), 0) / preflightRuns.length
+        : null,
+      avgPreflightFixAttempts: preflightRuns.length
+        ? preflightRuns.reduce((acc, r) => acc + (r.preflightFixAttempts || 0), 0) / preflightRuns.length
+        : null,
+      forceQaRate: preflightRuns.length
+        ? preflightRuns.reduce((acc, r) => acc + (r.forceQaUsed ? 1 : 0), 0) / preflightRuns.length
+        : null,
+      preflightQaParityRate: parityRuns.length
+        ? parityRuns.reduce((acc, r) => acc + (r.preflightQaAligned ? 1 : 0), 0) / parityRuns.length
         : null
     };
   }

@@ -103,8 +103,63 @@ export function OrderPanel({ s }: { s: AppState }) {
       </div>
 
       <div className="actions-row">
+        {s.taskStatus === 'awaiting_approval' && s.pendingNextStage === 'qa' && s.preflightReport && (
+          <div
+            className="field"
+            style={{
+              width: '100%',
+              marginBottom: 8,
+              padding: 10,
+              borderRadius: 8,
+              border: `1px solid ${s.preflightReport.passed ? 'var(--success, #2ecc71)' : 'var(--warning, #f39c12)'}`
+            }}
+          >
+            <strong>
+              Preflight sandbox: {s.preflightReport.tests.filter((t) => t.passed).length}/
+              {s.preflightReport.tests.length} OK
+            </strong>
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }}>
+              {s.preflightReport.tests.map((t) => (
+                <li key={t.name} style={{ color: t.passed ? 'inherit' : 'var(--warning, #f39c12)' }}>
+                  {t.passed ? '✓' : '✗'} {t.name}
+                  {!t.passed && t.error ? ` — ${t.error}` : ''}
+                </li>
+              ))}
+            </ul>
+            {!s.preflightReport.passed && (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginTop: 10,
+                  fontSize: 13,
+                  cursor: s.isExecuting ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={s.forceQa}
+                  disabled={s.isExecuting}
+                  onChange={(e) => s.setForceQa(e.target.checked)}
+                />
+                Forçar QA (admin) — ignora preflight reprovado
+              </label>
+            )}
+          </div>
+        )}
         {s.taskStatus === 'awaiting_approval' ? (
-          <button className="btn-primary" onClick={s.handleApprove} disabled={s.isExecuting} style={{ flex: 1 }}>
+          <button
+            className="btn-primary"
+            onClick={s.handleApprove}
+            disabled={s.isExecuting || !s.canApproveQa}
+            style={{ flex: 1 }}
+            title={
+              s.qaPreflightBlocked && !s.forceQa
+                ? 'Preflight reprovado — marque Forçar QA ou corrija o código'
+                : undefined
+            }
+          >
             <Check size={16} /> {s.approveButtonLabel}
           </button>
         ) : (

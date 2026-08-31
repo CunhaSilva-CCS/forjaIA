@@ -23,7 +23,11 @@ describe('ReliabilityCard', () => {
             avgHealingAttempts: null,
             userFixInvokedRate: null,
             avgTestPassRate: null,
-            humanPassedRate: null
+            humanPassedRate: null,
+            preflightPassRate: null,
+            avgPreflightFixAttempts: null,
+            forceQaRate: null,
+            preflightQaParityRate: null
           }
         })}
       />
@@ -41,7 +45,11 @@ describe('ReliabilityCard', () => {
             avgHealingAttempts: 1.5,
             userFixInvokedRate: 0.25,
             avgTestPassRate: 0.9,
-            humanPassedRate: null
+            humanPassedRate: null,
+            preflightPassRate: 0.8,
+            avgPreflightFixAttempts: 0.5,
+            forceQaRate: 0.1,
+            preflightQaParityRate: 0.95
           }
         })}
       />
@@ -51,6 +59,8 @@ describe('ReliabilityCard', () => {
     expect(screen.getByText('1.5')).toBeInTheDocument();
     expect(screen.getByText('25%')).toBeInTheDocument();
     expect(screen.getByText('90%')).toBeInTheDocument();
+    expect(screen.getByText('80%')).toBeInTheDocument();
+    expect(screen.getByText('95%')).toBeInTheDocument();
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
@@ -59,7 +69,18 @@ describe('ReliabilityCard', () => {
     render(
       <ReliabilityCard
         s={makeState({
-          reliabilityStats: { measuredRuns: 0, finishedWithoutInterventionRate: null, avgHealingAttempts: null, userFixInvokedRate: null, avgTestPassRate: null, humanPassedRate: null },
+          reliabilityStats: {
+            measuredRuns: 0,
+            finishedWithoutInterventionRate: null,
+            avgHealingAttempts: null,
+            userFixInvokedRate: null,
+            avgTestPassRate: null,
+            humanPassedRate: null,
+            preflightPassRate: null,
+            avgPreflightFixAttempts: null,
+            forceQaRate: null,
+            preflightQaParityRate: null
+          },
           refreshReliabilityStats: refresh
         })}
       />

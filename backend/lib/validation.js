@@ -17,6 +17,7 @@ const runConfigSchema = z.object({
   mode: z.enum(['forge', 'validate']).optional(),
   sourcePath: z.string().min(1).optional(),
   pendingNextStage: z.string().optional(),
+  forceQa: z.boolean().optional(),
   healingAttempts: z.number().int().nonnegative().optional(),
   environment: z.enum(['local', 'staging']).optional()
 });
@@ -54,7 +55,13 @@ const approveRequestSchema = z.object({
             consequences: z.string().optional()
           })
         )
-        .optional()
+        .optional(),
+      apiContracts: z.array(z.record(z.unknown())).optional(),
+      dataModels: z.array(z.record(z.unknown())).optional(),
+      dependencies: z.array(z.record(z.unknown())).optional(),
+      nonFunctional: z.union([z.array(z.record(z.unknown())), z.record(z.unknown())]).optional(),
+      seniorReview: z.record(z.unknown()).optional(),
+      testScenarios: z.array(z.record(z.unknown())).optional()
     })
     .optional()
 });
